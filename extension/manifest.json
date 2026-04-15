@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Bandcamp Hub Cart Push",
+  "version": "1.0.0",
+  "description": "Silently pushes tracks from Bandcamp Hub (localhost:3000) to your Bandcamp cart using your real browser session.",
+  "icons": {
+    "16":  "icon.png",
+    "32":  "icon.png",
+    "48":  "icon.png",
+    "128": "icon.png"
+  },
+  "permissions": [
+    "tabs",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://*.bandcamp.com/*",
+    "http://localhost:3000/*"
+  ],
+  "externally_connectable": {
+    "matches": ["http://localhost:3000/*"]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:3000/*"],
+      "js": ["hub-connector.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

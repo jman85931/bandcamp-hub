@@ -1728,16 +1728,23 @@ function renderCartItems(items) {
 }
 
 function pushToCart(trackId) {
-  showCartScriptModal([trackId]);
+  pushTracksViaExtension([trackId]);
 }
 
 function pushPlaylistToCart(playlistId) {
   const pl = getPlaylist(playlistId);
   if (!pl) return;
-  showCartScriptModal(pl.trackIds);
+  pushTracksViaExtension(pl.trackIds);
 }
 
-function showCartScriptModal(trackIds) {
+// ── Extension cart push ───────────────────────────────────────────────────
+
+function getExtensionId() {
+  const meta = document.querySelector('meta[name="bchub-extension-id"]');
+  return meta?.content ?? null;
+}
+
+async function pushTracksViaExtension(trackIds) {
   const tracks = trackIds
     .map(id => state.tracks[id])
     .filter(t => t && (t.bcTrackId || t.bcAlbumId));
@@ -1747,48 +1754,61 @@ function showCartScriptModal(trackIds) {
     return;
   }
 
-  const fanId = state.settings.fanId || '0';
-
-  // Build compact track list for the script
-  const trackData = tracks.map(t => {
+  const queueTracks = tracks.map(t => {
     const url = t.url ?? t.albumUrl ?? '';
     const origin = url.match(/^(https?:\/\/[^/]+)/)?.[1] ?? '';
     return {
-      o: origin,
-      id: String(t.bcTrackId ?? t.bcAlbumId),
-      p: t.price ? String(parseFloat(t.price)) : '1',
-      type: t.bcTrackId ? 't' : 'p'
+      origin,
+      itemId:   String(t.bcTrackId ?? t.bcAlbumId),
+      itemType: t.bcTrackId ? 't' : 'p',
+      price:    t.price ? String(parseFloat(t.price)) : '1'
     };
-  }).filter(t => t.o && t.id);
+  }).filter(t => t.origin && t.itemId);
 
-  const script = `(async()=>{
-const T=${JSON.stringify(trackData)};
-const FAN='${fanId}';
-let ok=0,fail=0;
-for(const t of T){
-  try{
-    const r=await fetch(t.o+'/cart/cb',{method:'POST',credentials:'include',headers:{'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'XMLHttpRequest'},body:new URLSearchParams({req:'add',local_id:Math.random(),item_type:t.type||'t',item_id:t.id,unit_price:t.p,quantity:'1',option_id:'',discount_id:'',purchase_note:'',fan_id:FAN,ip_country_code:'GB',is_cardable:'true',cart_length:T.length,sync_num:'1',req_id:Math.random()}).toString()});
-    const j=await r.json();
-    if(j.req==='add'){ok++;}else{fail++;}
-  }catch(e){fail++;}
-}
-alert(ok+' of '+T.length+' tracks added to cart'+(fail?' ('+fail+' failed)':'')+'!');
-})();`;
+  if (!queueTracks.length) {
+    toast('No tracks with valid URLs found', 'error');
+    return;
+  }
 
-  document.getElementById('cart-script-output').value = script;
-  document.getElementById('cart-script-track-count').textContent =
-    `${trackData.length} track${trackData.length !== 1 ? 's' : ''} queued`;
+  const extId = getExtensionId();
+  if (!extId) {
+    toast('Extension not installed — see Settings to set it up', 'error');
+    return;
+  }
 
-  const copyBtn = document.getElementById('cart-script-copy-btn');
-  copyBtn.textContent = 'Copy Script';
-  copyBtn.onclick = () => {
-    navigator.clipboard.writeText(script).then(() => {
-      copyBtn.textContent = '✓ Copied!';
-      setTimeout(() => { copyBtn.textContent = 'Copy Script'; }, 2000);
-    });
-  };
+  // Queue tracks on server
+  try {
+    await api.post('/api/cart/queue', { tracks: queueTracks });
+  } catch (err) {
+    toast('Failed to queue tracks: ' + err.message, 'error');
+    return;
+  }
 
-  document.getElementById('cart-script-modal').classList.remove('hidden');
+  toast(`Pushing ${queueTracks.length} track${queueTracks.length !== 1 ? 's' : ''} to cart…`);
+
+  // Send message to extension background worker
+  chrome.runtime.sendMessage(extId, { action: 'pushCart' }, response => {
+    if (chrome.runtime.lastError) {
+      toast('Extension error: ' + chrome.runtime.lastError.message, 'error');
+      return;
+    }
+    if (!response) {
+      toast('No response from extension — is it installed?', 'error');
+      return;
+    }
+    if (response.error) {
+      toast('Cart push failed: ' + response.error, 'error');
+      return;
+    }
+    const { ok, fail, total } = response;
+    if (fail === 0) {
+      toast(`${ok} of ${total} tracks added to cart!`, 'success');
+    } else if (ok > 0) {
+      toast(`${ok} added, ${fail} failed`, 'error');
+    } else {
+      toast(`Cart push failed for all ${total} tracks`, 'error');
+    }
+  });
 }
 
 // ── Multi-select ──────────────────────────────────────────────────────────
@@ -1915,6 +1935,18 @@ function openSettings() {
   document.getElementById('fan-username-input').value = state.settings.fanUsername ?? '';
   document.getElementById('fan-id-input').value = state.settings.fanId ?? '';
   document.getElementById('settings-modal').classList.remove('hidden');
+  updateExtensionStatusBadge();
+}
+
+function updateExtensionStatusBadge() {
+  const badge = document.getElementById('ext-status-badge');
+  const details = document.getElementById('ext-install-details');
+  if (!badge) return;
+  const installed = !!getExtensionId();
+  badge.textContent = installed ? 'Installed' : 'Not installed';
+  badge.style.background = installed ? 'rgba(34,197,94,0.15)' : 'var(--bg1)';
+  badge.style.color = installed ? '#22c55e' : 'var(--text3)';
+  if (details) details.open = !installed;
 }
 
 function saveSettings() {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bandcamp Hub</title>
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <div id="app">
@@ -291,6 +291,22 @@
           <input type="text" id="fan-id-input" placeholder="e.g. 5038936">
           <p class="settings-hint">Your numeric Bandcamp fan ID — required for cart push. Find it in DevTools network tab (search "fan_id" in any Bandcamp request).</p>
         </div>
+        <div class="settings-field">
+          <label>Cart Push Extension
+            <span id="ext-status-badge" style="margin-left:8px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg1);color:var(--text3);font-weight:400">checking…</span>
+          </label>
+          <p class="settings-hint" style="margin-bottom:8px">Enables one-click cart push — no tab switching, fully silent.</p>
+          <details id="ext-install-details">
+            <summary style="cursor:pointer;font-size:12px;color:var(--accent);user-select:none">Install instructions (one time)</summary>
+            <ol style="margin:10px 0 0;padding-left:18px;font-size:12px;color:var(--text2);line-height:2.2">
+              <li>Open <strong>chrome://extensions</strong> in Chrome</li>
+              <li>Enable <strong>Developer mode</strong> (toggle, top-right)</li>
+              <li>Click <strong>Load unpacked</strong></li>
+              <li>Select the <code>extension/</code> folder inside your Bandcamp Hub project folder</li>
+              <li>Come back here and reload the page — the badge above will turn green</li>
+            </ol>
+          </details>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-primary" id="save-settings-btn">Save Settings</button>
@@ -317,34 +333,9 @@
   <!-- Hidden audio element -->
   <audio id="audio-el"></audio>
 
-  <!-- Cart Script Modal -->
-  <div id="cart-script-modal" class="modal-overlay hidden">
-    <div class="modal" style="max-width:560px">
-      <div class="modal-header">
-        <span class="modal-title">Push to Bandcamp Cart</span>
-        <button class="modal-close-x" data-modal="cart-script-modal">✕</button>
-      </div>
-      <div class="modal-body">
-        <p style="margin:0 0 12px;color:var(--text2);font-size:13px;">
-          Paste this script into the browser console while on <strong>bandcamp.com</strong>. It runs with your real browser session so items actually land in your cart.
-        </p>
-        <ol style="margin:0 0 12px;padding-left:18px;color:var(--text2);font-size:12px;line-height:1.8">
-          <li>Open <strong>bandcamp.com</strong> in a tab</li>
-          <li>Press <strong>F12</strong> → Console tab</li>
-          <li>Paste the script below and press <strong>Enter</strong></li>
-        </ol>
-        <div style="position:relative">
-          <textarea id="cart-script-output" readonly style="width:100%;height:120px;font-family:monospace;font-size:11px;background:var(--bg1);border:1px solid var(--border);color:var(--text1);padding:8px;border-radius:4px;resize:none;box-sizing:border-box"></textarea>
-          <button id="cart-script-copy-btn" class="btn-primary" style="margin-top:8px;width:100%">Copy Script</button>
-        </div>
-        <p id="cart-script-track-count" style="margin:8px 0 0;font-size:12px;color:var(--text3);text-align:center"></p>
-      </div>
-    </div>
-  </div>
-
   <!-- Toast notifications -->
   <div id="toast-container"></div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

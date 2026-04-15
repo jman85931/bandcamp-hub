@@ -485,7 +485,15 @@ app.post('/api/cart/queue', (req, res) => {
   res.json({ ok: true, count: data.cartQueue.length });
 });
 
+app.options('/api/cart/queue', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.sendStatus(204);
+});
+
 app.delete('/api/cart/queue', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const data = readData();
   data.cartQueue = [];
   writeData(data);
