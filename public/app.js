@@ -1881,7 +1881,7 @@ async function refreshAllTracks() {
 
 // ── Bulk cart push ─────────────────────────────────────────────────────────
 function pushSelectedToCart() {
-  showCartScriptModal([...ui.selectedTrackIds]);
+  pushTracksViaExtension([...ui.selectedTrackIds]);
 }
 
 // ── Genre inline editing ───────────────────────────────────────────────────
