@@ -14,6 +14,7 @@ let ui = {
   activeLibView: null,  // 'purchased' | 'cart' | 'wishlist' | null
   selectedTrackId: null,
   selectedTrackIds: new Set(),  // checkboxes (bulk operations)
+  selectedCartIds:  new Set(),  // cart item selection
   contextTrackId: null,
   contextPlaylistId: null,
   collapsedAlbums: new Set(),
@@ -29,7 +30,7 @@ let fxRates = {}; // exchange rates relative to GBP (e.g. { EUR: 1.17, USD: 1.27
 
 async function fetchExchangeRates() {
   try {
-    const res = await fetch('https://api.frankfurter.app/latest?base=GBP');
+    const res = await fetch('/api/exchange-rates');
     const data = await res.json();
     fxRates = { ...data.rates, GBP: 1 };
   } catch (e) {
@@ -110,8 +111,8 @@ async function boot() {
     state.folders = data.folders ?? [];
     state.sidebarOrder = data.sidebarOrder ??
       state.playlists.map(p => ({ type: 'playlist', id: p.id }));
-    state.cartItems     = data.cartItems     ?? [];
-    state.wishlistItems = data.wishlistItems ?? [];
+    state.cartItems     = (data.cartItems     ?? []).filter(Boolean);
+    state.wishlistItems = (data.wishlistItems ?? []).filter(Boolean);
   } catch (e) { toast('Could not load data: ' + e.message, 'error'); }
 
   await fetchExchangeRates();
@@ -130,6 +131,7 @@ function fmtDuration(sec) {
 }
 
 function fmtPrice(track) {
+  if (!track) return '';
   if (track.purchased) return '✓ Owned';
   if (track.price == null || track.price === '') return '';
   const p = parseFloat(track.price);
@@ -275,9 +277,12 @@ function buildPlaylistItem(pl, inFolder) {
     <span class="playlist-name">${esc(pl.name)}</span>
     <span class="playlist-count">${count}</span>`;
 
-  li.addEventListener('click', () => selectPlaylist(pl.id));
-  li.addEventListener('dblclick', e => {
-    if (e.target.classList.contains('playlist-name')) startRename(pl.id, e.target);
+  li.addEventListener('click', e => {
+    if (e.target.classList.contains('playlist-name') && pl.id === ui.activePlaylistId) {
+      startRename(pl.id, e.target);
+    } else {
+      selectPlaylist(pl.id);
+    }
   });
 
   li.addEventListener('dragstart', e => {
@@ -290,8 +295,9 @@ function buildPlaylistItem(pl, inFolder) {
     clearDragOver();
   });
   li.addEventListener('dragover', e => {
-    if (dragState.type === 'playlist') { e.preventDefault(); li.classList.add('drag-over'); }
-    else if (dragState.type === 'track') { e.preventDefault(); li.classList.add('drag-over'); }
+    if (dragState.type === 'playlist' || dragState.type === 'track' || dragState.type === 'album') {
+      e.preventDefault(); li.classList.add('drag-over');
+    }
   });
   li.addEventListener('dragleave', () => li.classList.remove('drag-over'));
   li.addEventListener('drop', e => {
@@ -300,6 +306,8 @@ function buildPlaylistItem(pl, inFolder) {
       reorderPlaylistItem(dragState.id, pl.id, inFolder);
     } else if (dragState.type === 'track') {
       dropTrackOnPlaylist(dragState.id, pl.id);
+    } else if (dragState.type === 'album') {
+      dropAlbumOnPlaylist(pl.id);
     }
   });
   return li;
@@ -382,6 +390,35 @@ function buildFolderItem(folder) {
 
 function clearDragOver() {
   document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function startTitleRename(playlistId) {
+  const pl = getPlaylist(playlistId);
+  if (!pl) return;
+  const titleEl = document.getElementById('playlist-title');
+  if (titleEl.querySelector('input')) return; // already editing
+
+  const inp = document.createElement('input');
+  inp.id = 'playlist-title-input';
+  inp.value = pl.name;
+  titleEl.textContent = '';
+  titleEl.appendChild(inp);
+  inp.focus(); inp.select();
+
+  const finish = (save) => {
+    const val = inp.value.trim();
+    if (save && val && val !== pl.name) {
+      pl.name = val;
+      schedSave();
+      renderSidebar();
+    }
+    titleEl.textContent = pl.name;
+  };
+  inp.addEventListener('blur', () => finish(true));
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
+    if (e.key === 'Escape') { inp.value = pl.name; finish(false); }
+  });
 }
 
 function startRename(playlistId, nameEl) {
@@ -523,6 +560,36 @@ function dropTrackOnPlaylist(trackId, playlistId) {
   toast(`Added to "${pl.name}"`);
 }
 
+function dropAlbumOnPlaylist(playlistId) {
+  const pl = getPlaylist(playlistId);
+  if (!pl) return;
+
+  let added = 0;
+  if (dragState.trackIds) {
+    // Dragging from another playlist — tracks already in state.tracks
+    for (const tid of dragState.trackIds) {
+      if (pl.trackIds.includes(tid)) continue;
+      pl.trackIds.push(tid);
+      added++;
+    }
+  } else if (dragState.sourceItems) {
+    // Dragging from cart/wishlist — upsert raw items into state.tracks
+    for (const item of dragState.sourceItems) {
+      const id = crypto.randomUUID();
+      const track = { ...item, id, addedAt: new Date().toISOString() };
+      state.tracks[id] = track;
+      pl.trackIds.push(id);
+      added++;
+    }
+  }
+
+  if (!added) { toast('All tracks already in playlist'); return; }
+  schedSave();
+  renderSidebar();
+  if (ui.activePlaylistId === playlistId) renderContent();
+  toast(`Added ${added} track${added !== 1 ? 's' : ''} to "${pl.name}"`);
+}
+
 // ── Render: Content ──────────────────────────────────────────────────────
 function selectPlaylist(id) {
   ui.activePlaylistId = id;
@@ -536,6 +603,7 @@ function selectLibView(view) {
   ui.activeLibView = view;
   ui.activePlaylistId = null;
   ui.selectedTrackIds.clear();
+  ui.selectedCartIds.clear();
   renderSidebar();
   renderLibContent(view);
 }
@@ -552,6 +620,10 @@ function renderLibContent(view) {
 
   const pullActions = document.getElementById('lib-pull-actions');
   document.getElementById('pull-purchased-btn').classList.add('hidden');
+  document.getElementById('pull-cart-header-btn').classList.add('hidden');
+  document.getElementById('refresh-cart-btn').classList.add('hidden');
+  document.getElementById('remove-selected-cart-btn').classList.add('hidden');
+  document.getElementById('clear-cart-btn').classList.add('hidden');
   document.getElementById('pull-wishlist-header-btn').classList.add('hidden');
   pullActions.classList.remove('hidden');
 
@@ -563,7 +635,10 @@ function renderLibContent(view) {
   } else if (view === 'cart') {
     titleEl.textContent = 'Cart';
     items = state.cartItems;
-    pullActions.classList.add('hidden');
+    document.getElementById('pull-cart-header-btn').classList.remove('hidden');
+    const hasCart = state.cartItems.length > 0;
+    document.getElementById('refresh-cart-btn').classList.toggle('hidden', !hasCart);
+    document.getElementById('clear-cart-btn').classList.toggle('hidden', !hasCart);
   } else if (view === 'wishlist') {
     titleEl.textContent = 'Wishlist';
     items = state.wishlistItems;
@@ -587,47 +662,20 @@ function renderLibContent(view) {
       else listEl.appendChild(buildAlbumGroup(group, null));
     }
   } else {
-    // Cart / Wishlist: simpler rows (items may be partial)
-    items.forEach((item, idx) => {
-      const li = document.createElement('li');
-      li.className = 'track-item track-grid';
-      const artHtml = item.artwork
-        ? `<img class="track-art" src="${esc(item.artwork)}" alt="" loading="lazy">`
-        : `<div class="track-art-placeholder">♪</div>`;
-      li.innerHTML = `
-        <div class="col-check"></div>
-        <div class="col-num"><span class="col-num-static">${idx + 1}</span></div>
-        ${artHtml}
-        <div class="col-title"><div class="track-title">${esc(item.title ?? '')}</div></div>
-        <div class="col-time">${fmtDuration(item.duration)}</div>
-        <div class="col-artist">${esc(item.artist ?? '')}</div>
-        <div class="col-album">${esc(item.albumTitle ?? '')}</div>
-        <div class="col-genre"></div>
-        <div class="col-price">${item.price ? fmtPrice(item) : ''}</div>
-        <div></div>
-        <button class="track-menu-btn" title="More options">⋯</button>`;
-      li.querySelector('.track-menu-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        if (item.url) window.open(item.url, '_blank');
-      });
-
-      // Drag to playlist
-      if (view === 'wishlist') {
-        li.draggable = true;
-        li.title = 'Drag to a playlist';
-        li.addEventListener('dragstart', e => {
-          dragState = { type: 'track', id: item.id ?? null, sourceItem: item };
-          e.dataTransfer.effectAllowed = 'copy';
-          setTimeout(() => li.classList.add('dragging'), 0);
-        });
-        li.addEventListener('dragend', () => { li.classList.remove('dragging'); clearDragOver(); });
+    // Cart / Wishlist: group by album where possible
+    const groups = groupLibItems(items.filter(Boolean));
+    let trackNum = 0;
+    groups.forEach(group => {
+      if (group.type === 'album') {
+        listEl.appendChild(buildLibAlbumGroup(group, view));
+      } else {
+        trackNum++;
+        listEl.appendChild(buildLibTrackRow(group.item, trackNum, view));
       }
-
-      listEl.appendChild(li);
     });
   }
 
-  if (view === 'purchased' || view === 'wishlist') {
+  if (view === 'purchased' || view === 'wishlist' || view === 'cart') {
     renderLibStats(view, items);
   } else {
     document.getElementById('playlist-stats').classList.add('hidden');
@@ -696,6 +744,203 @@ function calcPlaylistPriceGBP(ids) {
   return total;
 }
 
+function groupLibItems(items) {
+  const groups = [];
+  const albumMap = new Map(); // "artist|||albumTitle" → group index
+  for (const item of items) {
+    if (item.albumTitle) {
+      const key = `${item.artist ?? ''}|||${item.albumTitle}`;
+      if (albumMap.has(key)) {
+        groups[albumMap.get(key)].items.push(item);
+      } else {
+        albumMap.set(key, groups.length);
+        groups.push({ type: 'album', key, albumTitle: item.albumTitle, artist: item.artist ?? '', artwork: item.artwork, items: [item] });
+      }
+    } else {
+      groups.push({ type: 'track', item });
+    }
+  }
+  // Demote single-track albums to plain rows
+  return groups.map(g => g.type === 'album' && g.items.length === 1 ? { type: 'track', item: g.items[0] } : g);
+}
+
+function buildLibTrackRow(item, num, view) {
+  const itemKey = String(item.id ?? item.title);
+  const isChecked = view === 'cart' && ui.selectedCartIds.has(itemKey);
+  const li = document.createElement('li');
+  li.className = 'track-item track-grid' + (isChecked ? ' checked' : '');
+  li.dataset.cartKey = itemKey;
+  const artHtml = item.artwork
+    ? `<img class="track-art" src="${esc(item.artwork)}" alt="" loading="lazy">`
+    : `<div class="track-art-placeholder">♪</div>`;
+  li.innerHTML = `
+    <div class="col-check">${view === 'cart' ? `<input type="checkbox" class="track-cb"${isChecked ? ' checked' : ''}>` : ''}</div>
+    <div class="col-num"><span class="col-num-static">${num}</span></div>
+    ${artHtml}
+    <div class="col-title"><div class="track-title">${esc(item.title ?? '')}</div></div>
+    <div class="col-time">${fmtDuration(item.duration)}</div>
+    <div class="col-artist">${esc(item.artist ?? '')}</div>
+    <div class="col-album">${esc(item.albumTitle ?? '')}</div>
+    <div class="col-genre"></div>
+    <div class="col-price">${item.price ? fmtPrice(item) : ''}</div>
+    <div></div>
+    <button class="track-menu-btn" title="Open on Bandcamp">⋯</button>`;
+  li.querySelector('.track-menu-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    if (item.url) window.open(item.url, '_blank');
+  });
+  if (view === 'cart') {
+    const cb = li.querySelector('.track-cb');
+    cb.addEventListener('change', e => { e.stopPropagation(); toggleCartItemCheck(itemKey, li, cb); });
+    li.addEventListener('click', e => {
+      if (e.target.closest('.track-cb') || e.target.closest('.track-menu-btn')) return;
+      toggleCartItemCheck(itemKey, li, cb);
+    });
+  }
+  if (view === 'wishlist' || view === 'cart') {
+    li.draggable = true;
+    li.title = 'Drag to a playlist';
+    li.addEventListener('dragstart', e => {
+      dragState = { type: 'track', id: item.id ?? null, sourceItem: item };
+      e.dataTransfer.effectAllowed = 'copy';
+      setTimeout(() => li.classList.add('dragging'), 0);
+    });
+    li.addEventListener('dragend', () => { li.classList.remove('dragging'); clearDragOver(); });
+  }
+  return li;
+}
+
+function buildLibAlbumGroup(group, view) {
+  const key = group.key;
+  const collapsed = ui.collapsedAlbums.has(key);
+  const li = document.createElement('li');
+  li.className = 'album-group' + (collapsed ? ' collapsed' : '');
+  li.dataset.albumUrl = key;
+
+  const totalDur = group.items.reduce((s, t) => s + (t.duration ?? 0), 0);
+  const durStr   = totalDur > 0 ? fmtDuration(totalDur) : '';
+  const countStr = `${group.items.length} track${group.items.length !== 1 ? 's' : ''}`;
+  const metaParts = [countStr, durStr].filter(Boolean);
+
+  // Album price: sum all track prices
+  let albumPrice = 0;
+  group.items.forEach(t => { if (t.price) albumPrice += toGBP(parseFloat(t.price), t.currency); });
+  const albumPriceStr = albumPrice > 0 ? fmtGBP(albumPrice) : '';
+
+  const artHtml = group.artwork
+    ? `<img class="album-group-art" src="${esc(group.artwork)}" alt="" loading="lazy">`
+    : `<div class="album-group-art-placeholder">♪</div>`;
+
+  const allKeys = group.items.map(t => String(t.id ?? t.title));
+  const allChecked = view === 'cart' && allKeys.length > 0 && allKeys.every(k => ui.selectedCartIds.has(k));
+  li.innerHTML = `
+    <div class="album-group-header">
+      <div class="col-check">${view === 'cart' ? `<input type="checkbox" class="album-select-cb track-cb"${allChecked ? ' checked' : ''}>` : ''}</div>
+      ${artHtml}
+      <div class="album-group-info">
+        <div class="album-group-title">${esc(group.albumTitle)}</div>
+        <div class="album-group-meta">${esc(group.artist)} · ${metaParts.join(' · ')}</div>
+      </div>
+      ${albumPriceStr ? `<span class="album-group-price">${esc(albumPriceStr)}</span>` : ''}
+      <button class="album-group-play-btn">▶ Play</button>
+      <div class="album-group-actions"></div>
+    </div>
+    <ul class="album-group-tracks"></ul>`;
+
+  const tracksUl = li.querySelector('.album-group-tracks');
+  group.items.forEach((item, idx) => {
+    tracksUl.appendChild(buildLibTrackRow(item, idx + 1, view));
+  });
+
+  if (view === 'cart') {
+    const albumCb = li.querySelector('.album-select-cb');
+    albumCb.addEventListener('click', e => e.stopPropagation());
+    albumCb.addEventListener('change', () => {
+      const areAllSelected = allKeys.every(k => ui.selectedCartIds.has(k));
+      allKeys.forEach(k => areAllSelected ? ui.selectedCartIds.delete(k) : ui.selectedCartIds.add(k));
+      renderLibContent('cart');
+      updateCartSelectionUI();
+    });
+  }
+
+  // Drag whole album to a playlist
+  const libHeader = li.querySelector('.album-group-header');
+  libHeader.draggable = true;
+  libHeader.title = 'Drag to a playlist';
+  libHeader.addEventListener('dragstart', e => {
+    dragState = { type: 'album', sourceItems: group.items };
+    e.dataTransfer.effectAllowed = 'copy';
+    setTimeout(() => li.classList.add('dragging'), 0);
+  });
+  libHeader.addEventListener('dragend', () => li.classList.remove('dragging'));
+
+  li.querySelector('.album-group-header').addEventListener('click', e => {
+    if (e.target.closest('.album-group-play-btn')) {
+      const first = group.items.find(t => t.url);
+      if (first?.url) window.open(first.url, '_blank');
+    } else if (!e.target.closest('.album-select-cb')) {
+      toggleAlbumGroup(key, li);
+    }
+  });
+
+  return li;
+}
+
+function toggleCartItemCheck(key, li, cb) {
+  if (ui.selectedCartIds.has(key)) {
+    ui.selectedCartIds.delete(key);
+  } else {
+    ui.selectedCartIds.add(key);
+  }
+  const checked = ui.selectedCartIds.has(key);
+  li.classList.toggle('checked', checked);
+  if (cb) cb.checked = checked;
+  updateCartSelectionUI();
+}
+
+function updateCartSelectionUI() {
+  const count = ui.selectedCartIds.size;
+  const btn = document.getElementById('remove-selected-cart-btn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', count === 0);
+  if (count > 0) btn.textContent = `✕ Remove Selected (${count})`;
+}
+
+async function removeSelectedCartItems() {
+  if (!ui.selectedCartIds.size) return;
+
+  // Collect the items being removed
+  const toRemove = state.cartItems.filter(item => ui.selectedCartIds.has(String(item.id ?? item.title)));
+  // Pass both localId (cart slot) and itemId (Bandcamp track ID) — the extension
+  // tries matching by whichever field the current Sidecart viewmodel exposes
+  const removeItems = toRemove
+    .filter(item => item.id != null || item.itemId != null)
+    .map(item => ({ localId: item.id ?? null, itemId: item.itemId ?? null }));
+
+  // Remove locally immediately
+  state.cartItems = state.cartItems.filter(item => !ui.selectedCartIds.has(String(item.id ?? item.title)));
+  ui.selectedCartIds.clear();
+  schedSave();
+  renderLibContent('cart');
+  renderLibraryCounts();
+  updateCartSelectionUI();
+  const hasItems = state.cartItems.length > 0;
+  document.getElementById('refresh-cart-btn').classList.toggle('hidden', !hasItems);
+  document.getElementById('clear-cart-btn').classList.toggle('hidden', !hasItems);
+
+  // Also remove from Bandcamp via extension
+  const extId = getExtensionId();
+  if (extId && removeItems.length) {
+    toast(`Removing ${removeItems.length} item(s) from Bandcamp cart…`);
+    chrome.runtime.sendMessage(extId, { action: 'removeCart', removeItems }, response => {
+      if (chrome.runtime.lastError || !response) return;
+      if (response.error) toast(`Bandcamp removal: ${response.error}`, 'error');
+      else if (response.fail > 0) toast(`Removed ${response.ok} from Bandcamp, ${response.fail} failed`, 'error');
+      else toast(`Removed ${response.ok} item(s) from Bandcamp cart`, 'success');
+    });
+  }
+}
+
 function renderLibStats(view, items) {
   const statsEl = document.getElementById('playlist-stats');
   const ownedEl = document.getElementById('stat-owned');
@@ -709,12 +954,13 @@ function renderLibStats(view, items) {
   ownedEl.classList.add('hidden');
   ownedSepEl.classList.add('hidden');
 
-  const trackCount = items.length;
-  const totalDur   = items.reduce((s, t) => s + (t.duration ?? 0), 0);
+  const safeItems  = items.filter(Boolean);
+  const trackCount = safeItems.length;
+  const totalDur   = safeItems.reduce((s, t) => s + (t.duration ?? 0), 0);
 
   // Total price: for wishlist sum prices; for purchased sum what was paid
   let totalGBP = 0;
-  for (const t of items) {
+  for (const t of safeItems) {
     if (t.price && parseFloat(t.price) > 0) {
       totalGBP += toGBP(parseFloat(t.price), t.currency);
     }
@@ -973,11 +1219,21 @@ function buildAlbumGroup(group, playlistId) {
     });
   }
 
+  // Drag whole album to another playlist
+  const header = li.querySelector('.album-group-header');
+  header.draggable = true;
+  header.addEventListener('dragstart', e => {
+    dragState = { type: 'album', trackIds: group.trackIds };
+    e.dataTransfer.effectAllowed = 'copy';
+    setTimeout(() => li.classList.add('dragging'), 0);
+  });
+  header.addEventListener('dragend', () => li.classList.remove('dragging'));
+
   // Toggle collapse on header click (not play button, not select checkbox, not remove btn)
-  li.querySelector('.album-group-header').addEventListener('click', e => {
+  header.addEventListener('click', e => {
     if (e.target.closest('.album-group-play-btn')) {
       playAlbumGroup(group, playlistId);
-    } else if (!e.target.classList.contains('album-select-cb') && !e.target.closest('.album-remove-btn')) {
+    } else if (!e.target.classList.contains('album-select-cb') && !e.target.closest('.album-remove-btn') && !e.target.closest('.drag-handle')) {
       toggleAlbumGroup(key, li);
     }
   });
@@ -1239,6 +1495,9 @@ function onTimeUpdate() {
 
 function onTrackEnded() { setPlaying(false); playNext(); }
 function onAudioError(e) {
+  // Ignore spurious errors fired when src is changed/aborted mid-load
+  if (player.isLoading) return;
+  if (!audioEl.error) return;
   setLoading(false); setPlaying(false);
   toast('Stream error — track may be unavailable', 'error');
 }
@@ -1580,33 +1839,74 @@ function populatePlaylistSelect(selectId, selectedId) {
 }
 
 // ── Cart / Wishlist ───────────────────────────────────────────────────────
-async function pullCart() {
-  setCartStatus('Fetching cart…'); clearCartItems();
-  try {
-    const res = await api.get('/api/cart/pull');
-    if (!res.items?.length) { setCartStatus('Cart appears empty or could not be parsed.'); return; }
-    setCartStatus(`Found ${res.items.length} item(s) in cart`);
-    renderCartItems(res.items);
-    state.cartItems = res.items;
-    schedSave(); renderLibraryCounts();
-  } catch (e) { setCartStatus(e.message, true); }
+
+function enrichCartItems(items) {
+  // Build a URL→track lookup from the Hub library for cross-referencing
+  const byUrl = {};
+  for (const t of Object.values(state.tracks)) {
+    if (t.url) byUrl[t.url] = t;
+  }
+
+  return items.filter(Boolean).map(item => {
+    // Cross-reference with Hub track by URL for full metadata
+    const match = item.url ? byUrl[item.url] : null;
+    if (match) {
+      return {
+        ...item,
+        artist:     match.artist     ?? item.artist,
+        albumTitle: match.albumTitle ?? item.albumTitle,
+        artwork:    match.artwork    ?? item.artwork,
+        duration:   match.duration   ?? item.duration,
+        // Keep the cart's own price/currency
+        price:    item.price,
+        currency: item.currency,
+      };
+    }
+
+    // Fallback: derive artist from URL subdomain (e.g. artistname.bandcamp.com)
+    let { artist, ...rest } = item;
+    if ((!artist || artist === 'Unknown') && item.url) {
+      const m = item.url.match(/https?:\/\/([^.]+)\.bandcamp\.com/);
+      if (m) artist = m[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+    return { ...rest, artist };
+  });
 }
 
-async function pullWishlist() {
-  setCartStatus('Fetching wishlist…'); clearCartItems();
+async function pullCartDirect() {
+  const btn = document.getElementById('pull-cart-header-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ Pulling…';
   try {
-    const res = await api.get('/api/wishlist/pull');
-    if (!res.items?.length) { setCartStatus('Wishlist is empty.'); return; }
-    const flat = [];
-    for (const item of res.items) {
-      if (item.type === 'album' && item.tracks?.length) flat.push(...item.tracks);
-      else flat.push(item);
+    const extId = getExtensionId();
+    let items;
+    if (extId) {
+      items = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(extId, { action: 'getCart' }, response => {
+          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          if (!response?.ok) return reject(new Error(response?.error ?? 'Extension error'));
+          resolve(response.items ?? []);
+        });
+      });
+    } else {
+      const res = await api.get('/api/cart/pull');
+      items = res.items ?? [];
     }
-    setCartStatus(`Found ${flat.length} item(s) in wishlist`);
-    renderCartItems(flat);
-    state.wishlistItems = flat;
-    schedSave(); renderLibraryCounts();
-  } catch (e) { setCartStatus(e.message, true); }
+    state.cartItems = enrichCartItems(items);
+    schedSave();
+    renderLibContent('cart');
+    renderLibraryCounts();
+    const hasItems = items.length > 0;
+    document.getElementById('refresh-cart-btn').classList.toggle('hidden', !hasItems);
+    document.getElementById('clear-cart-btn').classList.toggle('hidden', !hasItems);
+    if (!items.length) toast('Cart is empty.');
+    else toast(`Found ${items.length} item(s) in cart`, 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⬇ Pull from Bandcamp';
+  }
 }
 
 function openPullProgress(title) {
@@ -1668,7 +1968,7 @@ async function pullWishlistDirect() {
       if (item.type === 'album' && item.tracks?.length) flat.push(...item.tracks);
       else flat.push(item);
     }
-    state.wishlistItems = flat;
+    state.wishlistItems = flat.filter(Boolean);
     schedSave();
     renderLibContent('wishlist');
     renderLibraryCounts();
@@ -1681,16 +1981,67 @@ async function pullWishlistDirect() {
   }
 }
 
-function setCartStatus(msg, isError = false) {
-  const el = document.getElementById('cart-status');
-  el.textContent = msg;
-  el.className = 'cart-status' + (isError ? ' error' : '');
+async function refreshCartItems() {
+  const items = state.cartItems.filter(t => t?.url || t?.itemId);
+  if (!items.length) { toast('No items to refresh', 'error'); return; }
+
+  const btn = document.getElementById('refresh-cart-btn');
+  btn.disabled = true;
+
+  let ok = 0, fail = 0;
+  try {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      btn.textContent = `↻ ${i + 1}/${items.length}…`;
+      try {
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000));
+        let fetched = null;
+
+        if (item.url) {
+          // Preferred: look up by URL
+          const res = await Promise.race([api.post('/api/track/lookup', { url: item.url }), timeout]);
+          fetched = res.items?.[0] ?? res.track ?? null;
+        } else if (item.itemId) {
+          // Fallback: look up by Bandcamp track ID
+          const res = await Promise.race([
+            api.get(`/api/track/lookup-bc-id?id=${item.itemId}&type=${item.itemType ?? 't'}&band_id=${item.bandId ?? 0}`),
+            timeout
+          ]);
+          if (!res.error) fetched = res;
+        }
+
+        if (fetched) {
+          const idx = state.cartItems.findIndex(c => c.id === item.id);
+          if (idx !== -1) {
+            state.cartItems[idx] = {
+              ...state.cartItems[idx],
+              url:        fetched.url        ?? state.cartItems[idx].url,
+              artist:     fetched.artist     ?? state.cartItems[idx].artist,
+              albumTitle: fetched.albumTitle ?? fetched.album?.name ?? state.cartItems[idx].albumTitle,
+              artwork:    fetched.artwork    ?? fetched.imageUrl    ?? state.cartItems[idx].artwork,
+              duration:   fetched.duration   ?? state.cartItems[idx].duration,
+            };
+          }
+          ok++;
+        } else { fail++; }
+      } catch { fail++; }
+    }
+    schedSave();
+    renderLibContent('cart');
+    renderLibraryCounts();
+    toast(`Refreshed ${ok} track${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`, fail ? 'error' : 'success');
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Refresh All';
+  }
 }
 
 function clearCartItems() {
-  document.getElementById('cart-items-list').innerHTML = '';
-  document.getElementById('cart-modal-footer').style.display = 'none';
-  ui.cartPulledItems = [];
+  state.cartItems = [];
+  schedSave();
+  renderLibContent('cart');
+  renderLibraryCounts();
+  document.getElementById('refresh-cart-btn').classList.add('hidden');
+  document.getElementById('clear-cart-btn').classList.add('hidden');
 }
 
 function renderCartItems(items) {
@@ -1800,11 +2151,12 @@ async function pushTracksViaExtension(trackIds) {
       toast('Cart push failed: ' + response.error, 'error');
       return;
     }
-    const { ok, fail, total } = response;
+    const { ok, fail, total, subtotal } = response;
+    const priceStr = subtotal != null ? ` — £${subtotal.toFixed(2)} cart total` : '';
     if (fail === 0) {
-      toast(`${ok} of ${total} tracks added to cart!`, 'success');
+      toast(`${ok} of ${total} tracks added to cart!${priceStr}`, 'success');
     } else if (ok > 0) {
-      toast(`${ok} added, ${fail} failed`, 'error');
+      toast(`${ok} added, ${fail} failed${priceStr}`, 'error');
     } else {
       toast(`Cart push failed for all ${total} tracks`, 'error');
     }
@@ -1962,9 +2314,11 @@ function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function bindEvents() {
   // Header
   document.getElementById('settings-btn').addEventListener('click', openSettings);
+  document.getElementById('playlist-title').addEventListener('click', () => {
+    if (ui.activePlaylistId) startTitleRename(ui.activePlaylistId);
+  });
   document.getElementById('cart-btn').addEventListener('click', () => {
-    populatePlaylistSelect('cart-target-playlist', ui.activePlaylistId);
-    document.getElementById('cart-modal').classList.remove('hidden');
+    selectLibView('cart');
   });
 
   // Library items
@@ -2036,15 +2390,11 @@ function bindEvents() {
   document.getElementById('pull-purchased-btn').addEventListener('click', pullCollection);
   document.getElementById('pull-wishlist-header-btn').addEventListener('click', pullWishlistDirect);
 
-  // Cart modal
-  document.getElementById('pull-cart-btn').addEventListener('click', pullCart);
-  document.getElementById('pull-wishlist-btn').addEventListener('click', pullWishlist);
-  document.getElementById('cart-add-all-btn').addEventListener('click', () => {
-    const targetId = document.getElementById('cart-target-playlist').value;
-    if (!targetId) { toast('Select a playlist', 'error'); return; }
-    addTracksToPlaylist(ui.cartPulledItems, targetId);
-    document.querySelectorAll('.cart-item-add').forEach(btn => { btn.textContent = '✓ Added'; btn.classList.add('added'); });
-  });
+  // Cart / Wishlist header pull buttons
+  document.getElementById('pull-cart-header-btn').addEventListener('click', pullCartDirect);
+  document.getElementById('refresh-cart-btn').addEventListener('click', refreshCartItems);
+  document.getElementById('remove-selected-cart-btn').addEventListener('click', removeSelectedCartItems);
+  document.getElementById('clear-cart-btn').addEventListener('click', clearCartItems);
 
   // Settings
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);

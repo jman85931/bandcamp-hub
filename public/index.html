@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bandcamp Hub</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
   <div id="app">
@@ -87,6 +87,10 @@
             </div>
             <div id="lib-pull-actions" class="hidden">
               <button class="btn-sm" id="pull-purchased-btn">⬇ Pull from Bandcamp</button>
+              <button class="btn-sm" id="pull-cart-header-btn">⬇ Pull from Bandcamp</button>
+              <button class="btn-sm" id="refresh-cart-btn">↻ Refresh All</button>
+              <button class="btn-sm btn-danger hidden" id="remove-selected-cart-btn">✕ Remove Selected</button>
+              <button class="btn-sm btn-danger" id="clear-cart-btn">✕ Clear Cart</button>
               <button class="btn-sm" id="pull-wishlist-header-btn">⬇ Pull from Bandcamp</button>
             </div>
           </div>
@@ -243,28 +247,7 @@
     </div>
   </div>
 
-  <!-- MODAL: Cart / Wishlist -->
-  <div id="cart-modal" class="modal-overlay hidden">
-    <div class="modal-box modal-wide">
-      <div class="modal-header">
-        <h3>Cart / Wishlist Sync</h3>
-        <button class="modal-close" data-modal="cart-modal">✕</button>
-      </div>
-      <div class="cart-actions">
-        <button class="btn-primary" id="pull-cart-btn">⬇ Pull from Cart</button>
-        <button class="btn-primary" id="pull-wishlist-btn">⬇ Pull from Wishlist</button>
-      </div>
-      <div id="cart-status" class="cart-status"></div>
-      <ul id="cart-items-list" class="cart-items-list"></ul>
-      <div class="modal-footer" id="cart-modal-footer" style="display:none">
-        <label>Add pulled items to:</label>
-        <select id="cart-target-playlist"></select>
-        <button class="btn-primary" id="cart-add-all-btn">Add All to Playlist</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: Settings -->
+<!-- MODAL: Settings -->
   <div id="settings-modal" class="modal-overlay hidden">
     <div class="modal-box">
       <div class="modal-header">
@@ -336,6 +319,6 @@
   <!-- Toast notifications -->
   <div id="toast-container"></div>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>

@@ -181,6 +181,9 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.playlist-item.active .playlist-name {
+  cursor: text;
+}
 .playlist-name-input {
   flex: 1;
   background: var(--bg4);
@@ -305,11 +308,33 @@ html, body {
   justify-content: space-between;
   margin-bottom: 10px;
 }
+#playlist-title-row:has(#lib-pull-actions:not(.hidden)) {
+  justify-content: flex-start;
+  gap: 16px;
+}
+#lib-pull-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 #playlist-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
+  cursor: text;
+}
+#playlist-title-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0;
+  outline: none;
+  width: 260px;
+  max-width: 60vw;
 }
 
 #add-track-bar {

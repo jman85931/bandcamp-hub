@@ -74,6 +74,7 @@ function getDigitalOffer(raw) {
 }
 
 function formatPrice(track) {
+  if (!track) return null;
   try {
     const offer = getDigitalOffer(track.raw);
     if (offer?.price != null) return String(offer.price);
@@ -82,6 +83,7 @@ function formatPrice(track) {
 }
 
 function formatCurrency(track) {
+  if (!track) return null;
   try {
     const offer = getDigitalOffer(track.raw);
     if (offer?.priceCurrency) return offer.priceCurrency;
@@ -730,6 +732,48 @@ app.post('/api/track/refresh', async (req, res) => {
   } catch (err) {
     console.error('refresh error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Bandcamp track/album lookup by ID (for cart items that lack a URL)
+// ---------------------------------------------------------------------------
+
+app.get('/api/track/lookup-bc-id', async (req, res) => {
+  const { id, type = 't', band_id = '0' } = req.query;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  try {
+    const r = await fetch(
+      `https://bandcamp.com/api/tralbum/2/info?tralbum_id=${id}&tralbum_type=${type}&band_id=${band_id}`
+    );
+    if (!r.ok) throw new Error(`Bandcamp API ${r.status}`);
+    const data = await r.json();
+    // Return the fields we care about
+    res.json({
+      url:        data.url        ?? null,
+      title:      data.title      ?? null,
+      artist:     data.artist     ?? data.band_name ?? null,
+      albumTitle: data.album_title ?? null,
+      artwork:    data.art_id     ? `https://f4.bcbits.com/img/a${data.art_id}_2.jpg` : null,
+      duration:   data.duration   ?? null,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Exchange rates proxy (avoids CORS when called from the browser)
+// ---------------------------------------------------------------------------
+
+app.get('/api/exchange-rates', async (req, res) => {
+  try {
+    const r = await fetch('https://api.frankfurter.app/latest?base=GBP');
+    if (!r.ok) throw new Error(`frankfurter ${r.status}`);
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 
