@@ -1121,6 +1121,23 @@ select.sort-select { cursor: pointer; appearance: auto; }
 }
 .modal-wide { width: 660px; }
 
+/* Keyboard shortcuts */
+.shortcuts-body { padding: 12px 20px 20px; }
+.shortcut-group { margin-bottom: 16px; }
+.shortcut-group-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); margin-bottom: 8px; }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 13px; color: var(--text2); }
+kbd {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text1);
+  min-width: 32px;
+  text-align: center;
+}
+
 /* Stats dashboard */
 .stats-body { padding: 16px 20px 20px; overflow-y: auto; }
 .stats-grid {

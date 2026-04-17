@@ -2915,6 +2915,7 @@ function bindEvents() {
   // Settings
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
   document.getElementById('fetch-cookie-btn').addEventListener('click', fetchCookieFromExtension);
+  document.getElementById('shortcuts-btn').addEventListener('click', () => document.getElementById('shortcuts-modal').classList.remove('hidden'));
   document.getElementById('stats-btn').addEventListener('click', openStats);
   document.getElementById('export-data-btn').addEventListener('click', exportData);
   document.getElementById('import-data-input').addEventListener('change', e => { importData(e.target.files[0]); e.target.value = ''; });
@@ -2932,6 +2933,7 @@ function bindEvents() {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.key === '/')          { e.preventDefault(); document.getElementById('global-search').focus(); }
+    if (e.key === '?')          { document.getElementById('shortcuts-modal').classList.remove('hidden'); }
     if (e.key === ' ')          { e.preventDefault(); togglePlayPause(); }
     if (e.key === 'ArrowRight') { e.preventDefault(); audioEl.currentTime += 10; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); audioEl.currentTime -= 10; }

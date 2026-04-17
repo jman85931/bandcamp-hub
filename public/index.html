@@ -24,6 +24,7 @@
         </div>
       </div>
       <div class="header-right">
+        <button class="btn-icon" id="shortcuts-btn" title="Keyboard shortcuts (?)">?</button>
         <button class="btn-icon" id="stats-btn" title="Library Stats">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
@@ -331,6 +332,30 @@
   </div>
 
 <!-- MODAL: Settings -->
+  <!-- MODAL: Keyboard Shortcuts -->
+  <div id="shortcuts-modal" class="modal-overlay hidden">
+    <div class="modal-box modal-narrow">
+      <div class="modal-header">
+        <h3>Keyboard Shortcuts</h3>
+        <button class="modal-close" data-modal="shortcuts-modal">✕</button>
+      </div>
+      <div class="shortcuts-body">
+        <div class="shortcut-group">
+          <div class="shortcut-group-title">Playback</div>
+          <div class="shortcut-row"><kbd>Space</kbd><span>Play / Pause</span></div>
+          <div class="shortcut-row"><kbd>→</kbd><span>Seek forward 10s</span></div>
+          <div class="shortcut-row"><kbd>←</kbd><span>Seek back 10s</span></div>
+        </div>
+        <div class="shortcut-group">
+          <div class="shortcut-group-title">Navigation</div>
+          <div class="shortcut-row"><kbd>/</kbd><span>Focus search bar</span></div>
+          <div class="shortcut-row"><kbd>?</kbd><span>Show this panel</span></div>
+          <div class="shortcut-row"><kbd>Esc</kbd><span>Close panel / clear search</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: Stats Dashboard -->
   <div id="stats-modal" class="modal-overlay hidden">
     <div class="modal-box modal-wide">
