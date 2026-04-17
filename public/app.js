@@ -122,6 +122,9 @@ async function boot() {
       state.playlists.map(p => ({ type: 'playlist', id: p.id }));
     state.cartItems     = (data.cartItems     ?? []).filter(Boolean);
     state.wishlistItems = (data.wishlistItems ?? []).filter(Boolean);
+    // Remove smart playlists from sidebarOrder — they live in their own section
+    const smartIds = new Set(state.playlists.filter(p => p.type === 'smart').map(p => p.id));
+    state.sidebarOrder = state.sidebarOrder.filter(o => !(o.type === 'playlist' && smartIds.has(o.id)));
   } catch (e) { toast('Could not load data: ' + e.message, 'error'); }
 
   await fetchExchangeRates();
@@ -271,12 +274,21 @@ function setLibCount(id, n) {
 // ── Render: Sidebar ──────────────────────────────────────────────────────
 function renderSidebar() {
   renderLibraryCounts();
+
+  // Smart playlists — always shown in their own section, not affected by search
+  const smartUl = document.getElementById('smart-playlist-list');
+  smartUl.innerHTML = '';
+  for (const pl of state.playlists.filter(p => p.type === 'smart')) {
+    smartUl.appendChild(buildPlaylistItem(pl, false));
+  }
+
+  // Regular playlists
   const ul = document.getElementById('playlist-list');
   ul.innerHTML = '';
   const q = ui.playlistSearchQuery.toLowerCase();
 
   if (q) {
-    const filtered = state.playlists.filter(p => p.name.toLowerCase().includes(q));
+    const filtered = state.playlists.filter(p => p.type !== 'smart' && p.name.toLowerCase().includes(q));
     for (const pl of filtered) ul.appendChild(buildPlaylistItem(pl, false));
     return;
   }
@@ -287,7 +299,7 @@ function renderSidebar() {
       if (folder) ul.appendChild(buildFolderItem(folder));
     } else if (item.type === 'playlist') {
       const pl = getPlaylist(item.id);
-      if (pl) ul.appendChild(buildPlaylistItem(pl, false));
+      if (pl && pl.type !== 'smart') ul.appendChild(buildPlaylistItem(pl, false));
     }
   }
 }
@@ -2786,7 +2798,6 @@ function ensureBuiltInSmartPlaylists() {
   for (const def of BUILT_IN_SMART) {
     const pl = { id: crypto.randomUUID(), type: 'smart', name: def.name, criteria: def.criteria, trackIds: [] };
     state.playlists.push(pl);
-    state.sidebarOrder.push({ type: 'playlist', id: pl.id });
   }
   schedSave();
 }
@@ -2844,7 +2855,6 @@ function saveSmartPlaylist() {
   } else {
     const pl = { id: crypto.randomUUID(), type: 'smart', name, criteria, trackIds: [] };
     state.playlists.push(pl);
-    state.sidebarOrder.push({ type: 'playlist', id: pl.id });
   }
 
   schedSave();
