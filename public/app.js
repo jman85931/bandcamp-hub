@@ -2918,8 +2918,22 @@ function openStats() {
   })).sort((a, b) => b.count - a.count).slice(0, 10);
 
   // Most expensive unowned
-  const priciest = tracks
-    .filter(t => !t.purchased && parseFloat(t.price) > 0)
+  // Deduplicate by album so one sample pack doesn't dominate the list.
+  // Group unowned tracks by albumUrl; represent each album by its most expensive track.
+  const albumMap = new Map(); // albumUrl → track with highest price
+  const soloTracks = [];
+  for (const t of tracks) {
+    if (t.purchased || !(parseFloat(t.price) > 0)) continue;
+    if (t.albumUrl) {
+      const existing = albumMap.get(t.albumUrl);
+      if (!existing || toGBP(parseFloat(t.price), t.currency) > toGBP(parseFloat(existing.price), existing.currency)) {
+        albumMap.set(t.albumUrl, t);
+      }
+    } else {
+      soloTracks.push(t);
+    }
+  }
+  const priciest = [...albumMap.values(), ...soloTracks]
     .sort((a, b) => toGBP(parseFloat(b.price), b.currency) - toGBP(parseFloat(a.price), a.currency))
     .slice(0, 5);
 
