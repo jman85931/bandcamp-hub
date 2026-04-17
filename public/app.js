@@ -27,6 +27,7 @@ let ui = {
 
 let genreDropdownEl = null;
 let dragState = { type: null, id: null, sourceItem: null }; // type: 'playlist'|'folder'|'track'
+let globalSearchQuery = '';
 let fxRates = {}; // exchange rates relative to GBP (e.g. { EUR: 1.17, USD: 1.27 })
 
 async function fetchExchangeRates() {
@@ -693,6 +694,59 @@ function renderLibContent(view) {
   } else {
     document.getElementById('playlist-stats').classList.add('hidden');
   }
+}
+
+// ── Global search ─────────────────────────────────────────────────────────
+function handleGlobalSearch(query) {
+  globalSearchQuery = query.trim().toLowerCase();
+  document.getElementById('global-search-clear').classList.toggle('hidden', !globalSearchQuery);
+
+  if (!globalSearchQuery) {
+    // Return to previous view
+    renderContent();
+    return;
+  }
+
+  const titleEl   = document.getElementById('playlist-title');
+  const actionsEl = document.getElementById('playlist-actions');
+  const libEl     = document.getElementById('lib-pull-actions');
+  const emptyEl   = document.getElementById('track-list-empty');
+  const listEl    = document.getElementById('track-list');
+  const colHdr    = document.getElementById('track-col-header');
+  const addBar    = document.getElementById('add-track-bar');
+
+  titleEl.textContent = `Search: "${query.trim()}"`;
+  actionsEl.classList.add('hidden');
+  libEl.classList.add('hidden');
+  addBar.classList.add('hidden');
+  colHdr.classList.remove('hidden');
+  listEl.innerHTML = '';
+
+  const results = Object.values(state.tracks).filter(t => {
+    const hay = `${t.title} ${t.artist} ${t.albumTitle ?? ''} ${(t.tags ?? []).join(' ')}`.toLowerCase();
+    return hay.includes(globalSearchQuery);
+  });
+
+  if (!results.length) {
+    emptyEl.classList.remove('hidden');
+    emptyEl.textContent = 'No tracks found.';
+    return;
+  }
+  emptyEl.classList.add('hidden');
+  emptyEl.textContent = 'No tracks in this playlist yet.';
+
+  // Show results as plain track rows (no playlist context)
+  results.forEach(t => {
+    const row = buildTrackRow(t.id, null);
+    listEl.appendChild(row);
+  });
+}
+
+function clearGlobalSearch() {
+  globalSearchQuery = '';
+  document.getElementById('global-search').value = '';
+  document.getElementById('global-search-clear').classList.add('hidden');
+  renderContent();
 }
 
 function renderContent() {
@@ -2571,6 +2625,12 @@ function bindEvents() {
   // Sidebar
   document.getElementById('new-playlist-btn').addEventListener('click', () => createPlaylist());
   document.getElementById('new-folder-btn').addEventListener('click', () => createFolder());
+  // Global search
+  const globalSearchEl = document.getElementById('global-search');
+  globalSearchEl.addEventListener('input', e => handleGlobalSearch(e.target.value));
+  globalSearchEl.addEventListener('keydown', e => { if (e.key === 'Escape') clearGlobalSearch(); });
+  document.getElementById('global-search-clear').addEventListener('click', clearGlobalSearch);
+
   document.getElementById('duplicate-playlist-btn').addEventListener('click', duplicateActivePlaylist);
   document.getElementById('delete-playlist-btn').addEventListener('click', deleteActivePlaylist);
   document.getElementById('push-all-cart-btn').addEventListener('click', () => pushPlaylistToCart(ui.activePlaylistId));
@@ -2660,6 +2720,7 @@ function bindEvents() {
   document.addEventListener('keydown', e => {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === '/')          { e.preventDefault(); document.getElementById('global-search').focus(); }
     if (e.key === ' ')          { e.preventDefault(); togglePlayPause(); }
     if (e.key === 'ArrowRight') { e.preventDefault(); audioEl.currentTime += 10; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); audioEl.currentTime -= 10; }

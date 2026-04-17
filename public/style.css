@@ -61,6 +61,51 @@ html, body {
   color: var(--accent);
 }
 
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 0 24px;
+}
+.global-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+}
+.global-search-wrap .search-icon {
+  position: absolute;
+  left: 9px;
+  color: var(--text3);
+  pointer-events: none;
+}
+#global-search {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text1);
+  font-size: 13px;
+  padding: 5px 28px 5px 28px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+#global-search:focus { border-color: var(--accent); }
+#global-search::placeholder { color: var(--text3); }
+.search-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.search-clear:hover { color: var(--text1); }
+
 .header-right {
   display: flex;
   gap: 8px;
