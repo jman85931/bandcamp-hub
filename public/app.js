@@ -1968,6 +1968,7 @@ function showContextMenu(e, trackId, playlistId) {
   ui.contextTrackId = trackId;
   ui.contextPlaylistId = playlistId;
   const t = state.tracks[trackId];
+  if (!t) return;
   const menu = document.getElementById('context-menu');
 
   buildPlaylistSubmenu('ctx-move-submenu', playlistId, targetId => {
@@ -2054,6 +2055,7 @@ function handleContextAction(action) {
   const playlistId = ui.contextPlaylistId;
   const t = state.tracks[trackId];
   hideContextMenu();
+  if (!t && action !== 'batch-genre') return;
   switch (action) {
     case 'play':          playTrack(trackId, playlistId); selectTrack(trackId); break;
     case 'play-next':     queueNext(trackId); break;
