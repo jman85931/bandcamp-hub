@@ -1188,10 +1188,13 @@ function buildTrackRow(trackId, playlistId) {
   const isPlaying = player.trackId === trackId;
   const isChecked = ui.selectedTrackIds.has(trackId);
 
+  const isUnstreamable = t.streamable === false;
+
   const li = document.createElement('li');
   li.className = 'track-item track-grid' +
     (isPlaying ? ' playing' : '') +
-    (isChecked ? ' checked' : '');
+    (isChecked ? ' checked' : '') +
+    (isUnstreamable ? ' unstreamable' : '');
   li.dataset.trackId = trackId;
   li.dataset.playlistId = playlistId;
   li.draggable = true;
@@ -1217,9 +1220,10 @@ function buildTrackRow(trackId, playlistId) {
     </div>
     <div class="col-num">
       <span class="col-num-static"></span>
-      <div class="track-playing-indicator">
-        <div class="bars"><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
-      </div>
+      ${isUnstreamable
+        ? `<div class="track-no-stream" title="Not available to stream">⊘</div>`
+        : `<div class="track-playing-indicator"><div class="bars"><div class="bar"></div><div class="bar"></div><div class="bar"></div></div></div>`
+      }
     </div>
     ${artHtml}
     <div class="col-title"><div class="track-title">${esc(t.title)}</div></div>
@@ -1691,6 +1695,11 @@ async function playTrack(trackId, playlistId) {
   const t = state.tracks[trackId];
   if (!t) return;
 
+  if (t.streamable === false) {
+    toast('Track not streamable on Bandcamp', 'warn');
+    return;
+  }
+
   player.trackId = trackId;
   player.playlistId = playlistId;
 
@@ -1717,7 +1726,22 @@ async function playTrack(trackId, playlistId) {
     setPlaying(true);
   } catch (e) {
     setPlaying(false);
-    toast('Could not load stream: ' + e.message, 'error');
+    if (e.message?.includes('No stream URL')) {
+      // Server confirmed no stream — update local state and re-render row
+      if (state.tracks[trackId]) {
+        state.tracks[trackId].streamable = false;
+        document.querySelectorAll(`[data-track-id="${trackId}"]`).forEach(el => {
+          el.classList.add('unstreamable');
+          const noStream = el.querySelector('.track-no-stream');
+          if (noStream) noStream.style.display = 'block';
+          const numStatic = el.querySelector('.col-num-static');
+          if (numStatic) numStatic.style.display = 'none';
+        });
+      }
+      toast('Track not available to stream on Bandcamp', 'warn');
+    } else {
+      toast('Could not load stream: ' + e.message, 'error');
+    }
   } finally {
     setLoading(false);
   }

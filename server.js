@@ -118,6 +118,11 @@ function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
     ...keywords
   ])].filter(Boolean);
 
+  // A track is streamable if bcfetch returned a stream URL at fetch time.
+  // null means unknown (e.g. added via wishlist without full track info).
+  const hasStream = !!(track.streamUrl || track.streamUrlHQ);
+  const streamable = (track.streamUrl !== undefined || track.streamUrlHQ !== undefined) ? hasStream : null;
+
   return {
     id: uuidv4(),
     url: track.url ?? null,
@@ -140,6 +145,7 @@ function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
     bcTrackId,
     bcAlbumId,
     bcBandId,
+    streamable,
     purchased: false,
     notes: '',
     addedAt: new Date().toISOString()
@@ -239,6 +245,11 @@ app.get('/api/track/stream', async (req, res) => {
     }
 
     if (!streamUrl) {
+      // Confirmed no stream URL — mark track as non-streamable so the UI can block playback
+      if (data.tracks[trackId]) {
+        data.tracks[trackId].streamable = false;
+        writeData(data);
+      }
       return res.status(404).json({ error: 'No stream URL available for this track' });
     }
 

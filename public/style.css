@@ -790,6 +790,19 @@ html, body {
   to   { height: 14px; }
 }
 
+/* Non-streamable tracks */
+.track-item.unstreamable { opacity: 0.45; }
+.track-item.unstreamable:hover { opacity: 0.65; }
+.track-no-stream {
+  display: none;
+  font-size: 12px;
+  color: var(--text3);
+  width: 16px;
+  text-align: center;
+}
+.track-item.unstreamable .track-no-stream { display: block; }
+.track-item.unstreamable .col-num-static { display: none; }
+
 /* ── Player bar ───────────────────────────────────────────────────────── */
 #player {
   display: grid;
