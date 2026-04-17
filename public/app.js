@@ -2641,6 +2641,35 @@ function saveSettings() {
   schedSave(); closeModal('settings-modal'); toast('Settings saved', 'success');
 }
 
+function exportData() {
+  api.get('/api/data').then(data => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bandcamp-hub-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }).catch(e => toast('Export failed: ' + e.message, 'error'));
+}
+
+function importData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    let parsed;
+    try { parsed = JSON.parse(e.target.result); } catch { toast('Invalid JSON file', 'error'); return; }
+    if (!parsed.playlists || !parsed.tracks) { toast('File does not look like a Bandcamp Hub backup', 'error'); return; }
+    if (!confirm('This will replace all your current playlists and tracks. Are you sure?')) return;
+    try {
+      await api.post('/api/data', parsed);
+      toast('Import successful — reloading…', 'success');
+      setTimeout(() => location.reload(), 1200);
+    } catch (err) { toast('Import failed: ' + err.message, 'error'); }
+  };
+  reader.readAsText(file);
+}
+
 function fetchCookieFromExtension() {
   const extId = getExtensionId();
   if (!extId) { toast('Extension not installed — load it in chrome://extensions first', 'error'); return; }
@@ -2794,6 +2823,8 @@ function bindEvents() {
   // Settings
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
   document.getElementById('fetch-cookie-btn').addEventListener('click', fetchCookieFromExtension);
+  document.getElementById('export-data-btn').addEventListener('click', exportData);
+  document.getElementById('import-data-input').addEventListener('change', e => { importData(e.target.files[0]); e.target.value = ''; });
 
   // Close buttons
   document.querySelectorAll('.modal-close').forEach(btn => {

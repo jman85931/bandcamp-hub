@@ -368,6 +368,18 @@
           </details>
         </div>
       </div>
+        <div class="settings-field">
+          <label>Backup &amp; Restore</label>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn-secondary" id="export-data-btn" type="button">⬇ Export data.json</button>
+            <label class="btn-secondary" style="cursor:pointer" title="Import a previously exported data.json">
+              ⬆ Import data.json
+              <input type="file" id="import-data-input" accept=".json" style="display:none">
+            </label>
+          </div>
+          <p class="settings-hint">Export saves all your playlists and tracks. Import replaces everything — make an export first.</p>
+        </div>
+      </div>
       <div class="modal-footer">
         <button class="btn-primary" id="save-settings-btn">Save Settings</button>
         <button class="btn-secondary modal-close" data-modal="settings-modal">Cancel</button>
