@@ -3049,8 +3049,22 @@ function fetchCookieFromExtension() {
   if (!extId) { toast('Extension not installed — load it in chrome://extensions first', 'error'); return; }
   const btn = document.getElementById('fetch-cookie-btn');
   btn.disabled = true; btn.textContent = '⟳ Fetching…';
+
+  let done = false;
+  const reset = () => { btn.disabled = false; btn.textContent = '⬇ Fetch from Extension'; };
+
+  const timer = setTimeout(() => {
+    if (done) return;
+    done = true;
+    reset();
+    toast('Extension did not respond — try reloading it in chrome://extensions', 'error');
+  }, 8000);
+
   chrome.runtime.sendMessage(extId, { action: 'getCookie' }, response => {
-    btn.disabled = false; btn.textContent = '⬇ Fetch from Extension';
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    reset();
     if (chrome.runtime.lastError || !response?.ok) {
       toast(response?.error ?? chrome.runtime.lastError?.message ?? 'Could not fetch cookie', 'error');
       return;
