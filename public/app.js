@@ -125,6 +125,7 @@ async function boot() {
   } catch (e) { toast('Could not load data: ' + e.message, 'error'); }
 
   await fetchExchangeRates();
+  ensureBuiltInSmartPlaylists();
   bindEvents();
   renderSidebar();
   if (state.playlists.length > 0) selectPlaylist(state.playlists[0].id);
@@ -182,7 +183,26 @@ function getTrack(id)    { return state.tracks[id]; }
 
 function playlistTrackIds(playlistId) {
   const pl = getPlaylist(playlistId);
-  return pl ? pl.trackIds.filter(id => state.tracks[id]) : [];
+  if (!pl) return [];
+  if (pl.type === 'smart') return smartPlaylistTrackIds(pl.criteria ?? {});
+  return pl.trackIds.filter(id => state.tracks[id]);
+}
+
+function smartPlaylistTrackIds(criteria) {
+  let tracks = Object.values(state.tracks);
+  const { genre, purchased, price, addedWithin } = criteria;
+  if (genre) tracks = tracks.filter(t => t.genre === genre || t.tags?.includes(genre));
+  if (purchased === 'owned')   tracks = tracks.filter(t => t.purchased);
+  if (purchased === 'unowned') tracks = tracks.filter(t => !t.purchased);
+  if (price === 'free') tracks = tracks.filter(t => !t.price || t.price === '0' || parseFloat(t.price) === 0);
+  if (price === 'paid') tracks = tracks.filter(t => t.price && parseFloat(t.price) > 0);
+  if (addedWithin > 0) {
+    const cutoff = Date.now() - addedWithin * 86400000;
+    tracks = tracks.filter(t => t.addedAt && new Date(t.addedAt).getTime() >= cutoff);
+  }
+  // Sort newest-first by default for smart playlists
+  tracks.sort((a, b) => new Date(b.addedAt ?? 0) - new Date(a.addedAt ?? 0));
+  return tracks.map(t => t.id);
 }
 
 // ── Album grouping ────────────────────────────────────────────────────────
@@ -274,15 +294,17 @@ function renderSidebar() {
 
 function buildPlaylistItem(pl, inFolder) {
   const li = document.createElement('li');
-  li.className = 'playlist-item' + (inFolder ? ' folder-child' : '');
+  li.className = 'playlist-item' + (inFolder ? ' folder-child' : '') + (pl.type === 'smart' ? ' smart-playlist-item' : '');
   li.dataset.id = pl.id;
   li.dataset.type = 'playlist';
-  li.draggable = true;
+  li.draggable = pl.type !== 'smart';
   if (pl.id === ui.activePlaylistId) li.classList.add('active');
-  const count = pl.trackIds.filter(id => state.tracks[id]).length;
+  const count = pl.type === 'smart'
+    ? smartPlaylistTrackIds(pl.criteria ?? {}).length
+    : pl.trackIds.filter(id => state.tracks[id]).length;
   li.innerHTML = `
     <span class="drag-handle" title="Drag to reorder">⠿</span>
-    <span class="playlist-icon">♫</span>
+    <span class="playlist-icon">${pl.type === 'smart' ? '⚡' : '♫'}</span>
     <span class="playlist-name">${esc(pl.name)}</span>
     <span class="playlist-count">${count}</span>`;
 
@@ -824,12 +846,26 @@ function renderContent() {
     return;
   }
 
-  document.getElementById('add-track-bar').classList.remove('hidden');
+  const isSmart = pl.type === 'smart';
+  document.getElementById('add-track-bar').classList.toggle('hidden', isSmart);
   document.getElementById('lib-pull-actions').classList.add('hidden');
+  document.getElementById('delete-playlist-btn').classList.toggle('hidden', isSmart);
   titleEl.textContent = pl.name;
   actionsEl.classList.remove('hidden');
 
-  const rawIds = pl.trackIds.filter(id => state.tracks[id]);
+  // Smart playlist criteria banner
+  const criteriaBar = document.getElementById('smart-criteria-bar');
+  const criteriaDesc = document.getElementById('smart-criteria-desc');
+  if (isSmart) {
+    criteriaDesc.textContent = describeSmartCriteria(pl.criteria ?? {});
+    criteriaBar.classList.remove('hidden');
+  } else {
+    criteriaBar.classList.add('hidden');
+  }
+
+  const rawIds = isSmart
+    ? smartPlaylistTrackIds(pl.criteria ?? {})
+    : pl.trackIds.filter(id => state.tracks[id]);
   const ids = sortTrackIds(filterTrackIds(rawIds));
   const hasItems = ids.length > 0;
   emptyEl.classList.toggle('hidden', hasItems);
@@ -837,11 +873,13 @@ function renderContent() {
   listEl.innerHTML = '';
 
   const groups = groupTracksByAlbum(ids);
+  // Smart playlists: pass null playlistId so remove button doesn't show
+  const rowPlaylistId = isSmart ? null : pl.id;
   for (const group of groups) {
     if (group.type === 'track') {
-      listEl.appendChild(buildTrackRow(group.trackId, pl.id));
+      listEl.appendChild(buildTrackRow(group.trackId, rowPlaylistId));
     } else {
-      listEl.appendChild(buildAlbumGroup(group, pl.id));
+      listEl.appendChild(buildAlbumGroup(group, rowPlaylistId));
     }
   }
 
@@ -1931,9 +1969,18 @@ function showContextMenu(e, trackId, playlistId) {
   menu.querySelector('[data-action="toggle-purchased"]').textContent =
     t.purchased ? 'Unmark Purchased' : 'Mark as Purchased';
 
+  // Show batch genre option only when multiple tracks are selected
+  const selCount = ui.selectedTrackIds.size;
+  const batchGenreItem = menu.querySelector('[data-action="batch-genre"]');
+  if (batchGenreItem) {
+    batchGenreItem.classList.toggle('hidden', selCount < 2);
+    if (selCount >= 2) batchGenreItem.textContent = `Set genre for ${selCount} selected…`;
+    menu.querySelector('[data-action="batch-genre-sep"]')?.classList.toggle('hidden', selCount < 2);
+  }
+
   menu.classList.remove('hidden');
   const x = Math.min(e.clientX, window.innerWidth - 220);
-  const y = Math.min(e.clientY, window.innerHeight - 280);
+  const y = Math.min(e.clientY, window.innerHeight - 300);
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
 }
@@ -1941,9 +1988,9 @@ function showContextMenu(e, trackId, playlistId) {
 function buildPlaylistSubmenu(subId, currentPlaylistId, onSelect, excludeCurrent) {
   const sub = document.getElementById(subId);
   sub.innerHTML = '';
-  const others = excludeCurrent
+  const others = (excludeCurrent
     ? state.playlists.filter(p => p.id !== currentPlaylistId)
-    : state.playlists;
+    : state.playlists).filter(p => p.type !== 'smart');
   if (!others.length) {
     const item = document.createElement('div');
     item.className = 'ctx-item';
@@ -1971,7 +2018,14 @@ let plCtxId = null;
 function showPlaylistCtxMenu(e, playlistId) {
   hideContextMenu();
   plCtxId = playlistId;
+  const pl = getPlaylist(playlistId);
+  const isSmart = pl?.type === 'smart';
   const menu = document.getElementById('playlist-ctx-menu');
+  // Smart playlists: show "Edit Criteria" instead of "Rename", hide "Duplicate"
+  const renameItem = menu.querySelector('[data-pl-action="rename"]');
+  const dupItem = menu.querySelector('[data-pl-action="duplicate"]');
+  if (renameItem) renameItem.textContent = isSmart ? 'Edit Criteria…' : 'Rename';
+  if (dupItem) dupItem.classList.toggle('hidden', isSmart);
   menu.classList.remove('hidden');
   const x = Math.min(e.clientX, window.innerWidth - 160);
   const y = Math.min(e.clientY, window.innerHeight - 120);
@@ -1999,6 +2053,7 @@ function handleContextAction(action) {
       t.purchased = !t.purchased; schedSave(); renderContent(); renderLibraryCounts();
       if (ui.selectedTrackId === trackId) renderDetailPanel(); break;
     case 'remove':        removeFromPlaylist(trackId, playlistId); break;
+    case 'batch-genre':   batchSetGenre([...ui.selectedTrackIds]); break;
   }
 }
 
@@ -2019,7 +2074,7 @@ function queueNext(trackId) {
 // ── Track management ──────────────────────────────────────────────────────
 function addTracksToPlaylist(tracks, playlistId) {
   const pl = getPlaylist(playlistId);
-  if (!pl) return;
+  if (!pl || pl.type === 'smart') return;
   let added = 0;
   for (const t of tracks) {
     if (!state.tracks[t.id]) state.tracks[t.id] = t;
@@ -2081,6 +2136,22 @@ function copyTrack(trackId, toPlaylistId) {
 }
 
 // ── Add track flow ────────────────────────────────────────────────────────
+
+// Returns the first existing track whose URL matches, else null
+function findDuplicateTrack(url) {
+  if (!url) return null;
+  const norm = url.split('?')[0].replace(/\/$/, '');
+  return Object.values(state.tracks).find(t =>
+    t.url && t.url.split('?')[0].replace(/\/$/, '') === norm
+  ) ?? null;
+}
+
+// Returns the playlist name that contains a track, or null
+function findTrackInPlaylist(trackId) {
+  const pl = state.playlists.find(p => p.trackIds.includes(trackId));
+  return pl ? pl.name : null;
+}
+
 async function handleAddTrack() {
   const input = document.getElementById('track-url-input');
   const url = input.value.trim();
@@ -2093,10 +2164,20 @@ async function handleAddTrack() {
 
   try {
     const result = await api.post('/api/track/lookup', { url });
-    input.value = '';
+
     if (result.type === 'track' && result.items.length === 1) {
+      const dup = findDuplicateTrack(result.items[0].url);
+      if (dup) {
+        const inPl = findTrackInPlaylist(dup.id);
+        const msg = inPl
+          ? `"${dup.title}" is already in "${inPl}". Add anyway?`
+          : `"${dup.title}" is already in your library. Add anyway?`;
+        if (!confirm(msg)) { btn.disabled = false; btn.textContent = 'Add'; return; }
+      }
+      input.value = '';
       addTracksToPlaylist(result.items, ui.activePlaylistId);
     } else {
+      input.value = '';
       showPicker(result);
     }
   } catch (e) {
@@ -2124,16 +2205,19 @@ function showPicker(result) {
   const ul = document.getElementById('picker-track-list');
   ul.innerHTML = '';
   result.items.forEach((t, i) => {
+    const dup = findDuplicateTrack(t.url);
+    const dupLabel = dup ? ` <span class="picker-dup-badge" title="Already in library">✓ owned</span>` : '';
     const li = document.createElement('li');
+    if (dup) li.classList.add('picker-dup');
     const artHtml = t.artwork
       ? `<img class="picker-track-art" src="${esc(t.artwork)}" alt="" loading="lazy">`
       : `<div class="picker-track-art" style="background:var(--bg4)"></div>`;
     li.innerHTML = `
       <label>
-        <input type="checkbox" checked data-idx="${i}">
+        <input type="checkbox" ${dup ? '' : 'checked'} data-idx="${i}">
         ${artHtml}
         <div class="picker-track-info">
-          <div class="picker-track-title">${esc(t.title)}</div>
+          <div class="picker-track-title">${esc(t.title)}${dupLabel}</div>
           <div class="picker-track-meta">${esc(t.artist)}</div>
         </div>
       </label>
@@ -2194,7 +2278,7 @@ function deleteActivePlaylist() {
 function populatePlaylistSelect(selectId, selectedId) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = '';
-  for (const pl of state.playlists) {
+  for (const pl of state.playlists.filter(p => p.type !== 'smart')) {
     const opt = document.createElement('option');
     opt.value = pl.id; opt.textContent = pl.name;
     if (pl.id === selectedId) opt.selected = true;
@@ -2670,6 +2754,106 @@ function closeGenreEdit() {
   genreDropdownEl = null;
 }
 
+function batchSetGenre(trackIds) {
+  if (!trackIds.length) return;
+  const genre = prompt('Set genre for all selected tracks:');
+  if (genre === null) return; // cancelled
+  const g = genre.trim();
+  let changed = 0;
+  trackIds.forEach(id => {
+    const t = state.tracks[id];
+    if (!t) return;
+    t.genre = g || null;
+    // Keep genre in tags list too
+    if (g && !t.tags.includes(g)) t.tags.unshift(g);
+    changed++;
+  });
+  schedSave();
+  renderContent();
+  toast(`Genre set for ${changed} track${changed !== 1 ? 's' : ''}`, 'success');
+}
+
+// ── Smart playlists ───────────────────────────────────────────────────────
+const BUILT_IN_SMART = [
+  { name: 'Recently Added', criteria: { addedWithin: 30 } },
+  { name: 'Unowned',        criteria: { purchased: 'unowned' } },
+  { name: 'Free',           criteria: { price: 'free' } }
+];
+
+function ensureBuiltInSmartPlaylists() {
+  const hasAny = state.playlists.some(p => p.type === 'smart');
+  if (hasAny) return;
+  for (const def of BUILT_IN_SMART) {
+    const pl = { id: crypto.randomUUID(), type: 'smart', name: def.name, criteria: def.criteria, trackIds: [] };
+    state.playlists.push(pl);
+    state.sidebarOrder.push({ type: 'playlist', id: pl.id });
+  }
+  schedSave();
+}
+
+function describeSmartCriteria(c) {
+  const parts = [];
+  if (c.genre)                     parts.push(`Genre: ${c.genre}`);
+  if (c.purchased === 'owned')     parts.push('Owned only');
+  if (c.purchased === 'unowned')   parts.push('Unowned only');
+  if (c.price === 'free')          parts.push('Free / name your price');
+  if (c.price === 'paid')          parts.push('Paid only');
+  if (c.addedWithin > 0) {
+    const labels = { 7: 'last 7 days', 30: 'last 30 days', 90: 'last 90 days', 365: 'last year' };
+    parts.push(`Added: ${labels[c.addedWithin] ?? `last ${c.addedWithin} days`}`);
+  }
+  return parts.length ? `⚡ ${parts.join(' · ')}` : '⚡ All tracks';
+}
+
+let smartEditingId = null;
+
+function openSmartModal(pl = null) {
+  smartEditingId = pl?.id ?? null;
+  document.getElementById('smart-modal-title').textContent = pl ? 'Edit Smart Playlist' : 'New Smart Playlist';
+  document.getElementById('smart-name-input').value = pl?.name ?? '';
+
+  // Populate genre options
+  const genreSelect = document.getElementById('smart-genre');
+  const allGenres = [...new Set(Object.values(state.tracks).map(t => t.genre).filter(Boolean))].sort();
+  genreSelect.innerHTML = '<option value="">Any genre</option>' +
+    allGenres.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  genreSelect.value = pl?.criteria?.genre ?? '';
+
+  document.getElementById('smart-purchased').value = pl?.criteria?.purchased ?? 'all';
+  document.getElementById('smart-price').value = pl?.criteria?.price ?? 'all';
+  document.getElementById('smart-added-within').value = String(pl?.criteria?.addedWithin ?? 0);
+
+  document.getElementById('smart-modal').classList.remove('hidden');
+  document.getElementById('smart-name-input').focus();
+}
+
+function saveSmartPlaylist() {
+  const name = document.getElementById('smart-name-input').value.trim();
+  if (!name) { toast('Please enter a name', 'warn'); return; }
+
+  const criteria = {
+    genre:        document.getElementById('smart-genre').value,
+    purchased:    document.getElementById('smart-purchased').value,
+    price:        document.getElementById('smart-price').value,
+    addedWithin:  parseInt(document.getElementById('smart-added-within').value, 10)
+  };
+
+  if (smartEditingId) {
+    const pl = getPlaylist(smartEditingId);
+    if (pl) { pl.name = name; pl.criteria = criteria; }
+  } else {
+    const pl = { id: crypto.randomUUID(), type: 'smart', name, criteria, trackIds: [] };
+    state.playlists.push(pl);
+    state.sidebarOrder.push({ type: 'playlist', id: pl.id });
+  }
+
+  schedSave();
+  renderSidebar();
+  if (smartEditingId) renderContent();
+  document.getElementById('smart-modal').classList.add('hidden');
+  smartEditingId = null;
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────
 function openSettings() {
   document.getElementById('cookie-input').value = state.settings.bandcampCookie ?? '';
@@ -2836,6 +3020,13 @@ function bindEvents() {
   // Sidebar
   document.getElementById('new-playlist-btn').addEventListener('click', () => createPlaylist());
   document.getElementById('new-folder-btn').addEventListener('click', () => createFolder());
+  document.getElementById('new-smart-playlist-btn').addEventListener('click', () => openSmartModal());
+  document.getElementById('smart-save-btn').addEventListener('click', saveSmartPlaylist);
+  document.getElementById('smart-cancel-btn').addEventListener('click', () => document.getElementById('smart-modal').classList.add('hidden'));
+  document.getElementById('smart-edit-btn').addEventListener('click', () => {
+    const pl = getPlaylist(ui.activePlaylistId);
+    if (pl) openSmartModal(pl);
+  });
   // Sort
   document.getElementById('sort-select').addEventListener('change', e => {
     ui.sortBy = e.target.value;
@@ -2935,6 +3126,8 @@ function bindEvents() {
     hidePlCtxMenu();
     switch (item.dataset.plAction) {
       case 'rename': {
+        const pl = getPlaylist(id);
+        if (pl?.type === 'smart') { openSmartModal(pl); break; }
         const nameEl = document.querySelector(`#playlist-list .playlist-item[data-id="${id}"] .playlist-name`);
         if (nameEl) { selectPlaylist(id); startRename(id, nameEl); }
         break;

@@ -263,6 +263,46 @@ html, body {
   transition: color 0.15s, border-color 0.15s;
 }
 .btn-new-playlist:hover { color: var(--text2); border-color: var(--text3); }
+.btn-new-smart { color: var(--accent); border-color: var(--accent); opacity: 0.7; }
+.btn-new-smart:hover { opacity: 1; }
+.smart-playlist-item .playlist-icon { color: var(--accent); }
+
+/* Smart criteria bar */
+.smart-criteria-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text3);
+  padding: 4px 0 2px;
+}
+.smart-criteria-bar .btn-sm { padding: 2px 8px; font-size: 11px; }
+
+/* Smart modal form rows */
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.form-row label {
+  font-size: 12px;
+  color: var(--text2);
+  width: 80px;
+  flex-shrink: 0;
+}
+.form-row input[type="text"],
+.form-row select {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  color: var(--text1);
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.form-row input[type="text"]:focus,
+.form-row select:focus { outline: none; border-color: var(--accent); }
+.modal-sm .modal-box { max-width: 420px; }
 
 /* ── Sidebar drag handles & reordering ──────────────────────────────────── */
 .drag-handle {
@@ -1317,6 +1357,8 @@ kbd {
 .picker-track-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 .picker-track-meta  { font-size: 11px; color: var(--text2); }
 .picker-track-dur   { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+.picker-dup { opacity: 0.55; }
+.picker-dup-badge { font-size: 10px; font-weight: 600; color: var(--accent); margin-left: 5px; vertical-align: middle; }
 
 /* ── Cart modal ───────────────────────────────────────────────────────── */
 .cart-actions {

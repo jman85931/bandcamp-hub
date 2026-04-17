@@ -86,6 +86,7 @@
         <div class="sidebar-new-btns">
           <button class="btn-new-playlist" id="new-playlist-btn">+ Playlist</button>
           <button class="btn-new-playlist btn-new-folder" id="new-folder-btn">+ Folder</button>
+          <button class="btn-new-playlist btn-new-smart" id="new-smart-playlist-btn">⚡ Smart</button>
         </div>
       </aside>
       <div id="sidebar-resize-handle"></div>
@@ -95,6 +96,10 @@
         <div id="content-header">
           <div id="playlist-title-row">
             <h2 id="playlist-title">Select a playlist</h2>
+            <div id="smart-criteria-bar" class="smart-criteria-bar hidden">
+              <span id="smart-criteria-desc"></span>
+              <button class="btn-sm" id="smart-edit-btn">Edit criteria</button>
+            </div>
             <div id="playlist-actions" class="hidden">
               <div class="filter-wrap">
                 <button class="btn-sm" id="filter-btn">⊟ Filter</button>
@@ -297,6 +302,8 @@
     <div class="ctx-item" data-action="refresh-track">Refresh Track Data</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item" data-action="toggle-purchased">Mark as Purchased</div>
+    <div class="ctx-sep hidden" data-action="batch-genre-sep"></div>
+    <div class="ctx-item hidden" data-action="batch-genre">Set genre for selected…</div>
     <div class="ctx-sep"></div>
     <div class="ctx-item ctx-danger" data-action="remove">Remove from Playlist</div>
   </div>
@@ -371,6 +378,56 @@
         <button class="modal-close" data-modal="stats-modal">✕</button>
       </div>
       <div id="stats-body" class="stats-body"></div>
+    </div>
+  </div>
+
+  <!-- SMART PLAYLIST EDITOR -->
+  <div id="smart-modal" class="modal-overlay hidden">
+    <div class="modal-box modal-sm">
+      <div class="modal-header">
+        <h3 id="smart-modal-title">New Smart Playlist</h3>
+        <button class="modal-close" data-modal="smart-modal">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;padding:16px 20px">
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="smart-name-input" placeholder="Smart playlist name…" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label>Genre</label>
+          <select id="smart-genre"><option value="">Any genre</option></select>
+        </div>
+        <div class="form-row">
+          <label>Owned</label>
+          <select id="smart-purchased">
+            <option value="all">All</option>
+            <option value="owned">Owned only</option>
+            <option value="unowned">Unowned only</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Price</label>
+          <select id="smart-price">
+            <option value="all">All</option>
+            <option value="free">Free / name your price</option>
+            <option value="paid">Paid only</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Added within</label>
+          <select id="smart-added-within">
+            <option value="0">All time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last year</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="btn-sm" id="smart-cancel-btn">Cancel</button>
+          <button class="btn-primary" id="smart-save-btn">Save</button>
+        </div>
+      </div>
     </div>
   </div>
 
