@@ -405,6 +405,13 @@ html, body {
   gap: 10px;
 }
 
+#playlist-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 #playlist-title {
   font-size: 15px;
   font-weight: 600;

@@ -861,7 +861,6 @@ function renderContent() {
   const isSmart = pl.type === 'smart';
   document.getElementById('add-track-bar').classList.toggle('hidden', isSmart);
   document.getElementById('lib-pull-actions').classList.add('hidden');
-  document.getElementById('delete-playlist-btn').classList.toggle('hidden', isSmart);
   titleEl.textContent = pl.name;
   actionsEl.classList.remove('hidden');
 
@@ -3084,7 +3083,6 @@ function bindEvents() {
   globalSearchEl.addEventListener('keydown', e => { if (e.key === 'Escape') clearGlobalSearch(); });
   document.getElementById('global-search-clear').addEventListener('click', clearGlobalSearch);
 
-  document.getElementById('delete-playlist-btn').addEventListener('click', deleteActivePlaylist);
   document.getElementById('push-all-cart-btn').addEventListener('click', () => pushPlaylistToCart(ui.activePlaylistId));
   document.getElementById('push-selected-cart-btn').addEventListener('click', pushSelectedToCart);
   document.getElementById('refresh-all-btn').addEventListener('click', refreshAllTracks);
