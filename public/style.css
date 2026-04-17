@@ -261,19 +261,19 @@ html, body {
 }
 .btn-new-playlist {
   background: transparent;
-  border: none;
+  border: 1px dashed var(--border2);
   color: var(--text3);
-  padding: 5px 8px;
+  padding: 7px;
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 12px;
   flex: 1;
   text-align: center;
-  transition: color 0.15s;
+  transition: color 0.15s, border-color 0.15s;
 }
-.btn-new-playlist:hover { color: var(--text2); }
-.btn-new-smart { color: var(--accent); opacity: 0.7; }
-.btn-new-smart:hover { opacity: 1; }
+.btn-new-playlist:hover { color: var(--text2); border-color: var(--text3); }
+.btn-new-smart { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); opacity: 0.8; }
+.btn-new-smart:hover { opacity: 1; border-color: var(--accent); }
 .smart-playlist-item .playlist-icon { color: var(--accent); }
 
 /* Smart criteria bar */
