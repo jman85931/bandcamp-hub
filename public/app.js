@@ -2632,6 +2632,7 @@ function pushPlaylistToCart(playlistId) {
 // ── Extension cart push ───────────────────────────────────────────────────
 
 function getExtensionId() {
+  if (typeof chrome === 'undefined' || !chrome.runtime) return null;
   const meta = document.querySelector('meta[name="bchub-extension-id"]');
   return meta?.content ?? null;
 }
