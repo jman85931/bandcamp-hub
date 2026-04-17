@@ -2725,13 +2725,14 @@ async function refreshAllTracks() {
   if (!ids.length) return;
 
   const btn = document.getElementById('refresh-all-btn');
-  btn.disabled = true;
+  if (btn?.disabled) return;      // guard against double-click
+  if (btn) btn.disabled = true;
 
   let ok = 0, fail = 0;
   try {
     for (let i = 0; i < ids.length; i++) {
       const trackId = ids[i];
-      btn.textContent = `↻ ${i + 1}/${ids.length}…`;
+      if (btn) btn.textContent = `↻ ${i + 1}/${ids.length}…`;
       try {
         const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000));
         const res = await Promise.race([api.post('/api/track/refresh', { trackId }), timeout]);
@@ -2744,7 +2745,7 @@ async function refreshAllTracks() {
     renderLibraryCounts();
     toast(`Refreshed ${ok} track${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`, fail ? 'error' : 'success');
   } finally {
-    btn.disabled = false; btn.textContent = '↻ Refresh All';
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh All'; }
   }
 }
 
