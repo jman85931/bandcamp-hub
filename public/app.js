@@ -1514,6 +1514,17 @@ function renderDetailPanel() {
       </div>
     </div>` : ''}
 
+    <!-- Notes -->
+    <div class="detail-section collapsed">
+      <div class="detail-section-header">
+        <span class="detail-section-title">NOTES</span>
+        <span class="detail-section-chevron">▾</span>
+      </div>
+      <div class="detail-section-body">
+        <textarea id="detail-notes" class="detail-notes" placeholder="Add notes…" rows="4">${t.notes ?? ''}</textarea>
+      </div>
+    </div>
+
     <!-- Actions -->
     <div class="detail-section">
       <div class="detail-section-header">
@@ -1553,6 +1564,14 @@ function renderDetailPanel() {
     const desc = document.getElementById('detail-desc-text');
     const expanded = desc.classList.toggle('expanded');
     e.target.textContent = expanded ? 'Show less' : 'Show more';
+  });
+
+  // Notes autosave
+  document.getElementById('detail-notes')?.addEventListener('input', e => {
+    const track = state.tracks[ui.selectedTrackId];
+    if (!track) return;
+    track.notes = e.target.value;
+    schedSave();
   });
 
   // Refresh button

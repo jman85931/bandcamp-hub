@@ -1775,6 +1775,23 @@ select {
 }
 .detail-actions-row .detail-action-btn { flex: 1; text-align: center; }
 
+/* Notes */
+.detail-notes {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  color: var(--text1);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 7px 9px;
+  resize: vertical;
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+.detail-notes:focus { outline: none; border-color: var(--accent); }
+.detail-notes::placeholder { color: var(--text3); }
+
 /* Description */
 .detail-description {
   font-size: 11px;
