@@ -1,7 +1,7 @@
 import express from 'express';
 import bcfetch from 'bandcamp-fetch';
 import { v4 as uuidv4 } from 'uuid';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, renameSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -24,13 +24,16 @@ function readData() {
   if (!existsSync(DATA_FILE)) return structuredClone(DEFAULT_DATA);
   try {
     return JSON.parse(readFileSync(DATA_FILE, 'utf-8'));
-  } catch {
+  } catch (err) {
+    console.error('[data] Failed to parse data.json, starting fresh:', err.message);
     return structuredClone(DEFAULT_DATA);
   }
 }
 
 function writeData(data) {
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  const tmp = DATA_FILE + '.tmp';
+  writeFileSync(tmp, JSON.stringify(data, null, 2));
+  renameSync(tmp, DATA_FILE);
 }
 
 function applySettings(data) {
