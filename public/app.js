@@ -849,9 +849,15 @@ function renderContent() {
   const colHdr    = document.getElementById('track-col-header');
 
   if (!pl) {
-    titleEl.textContent = 'Select a playlist';
+    titleEl.textContent = '';
     actionsEl.classList.add('hidden');
     document.getElementById('add-track-bar').classList.add('hidden');
+    document.getElementById('lib-pull-actions').classList.add('hidden');
+    emptyEl.innerHTML = state.playlists.length === 0
+      ? `<p>Welcome to Bandcamp Hub</p>
+         <p class="hint">Click <strong>+ New Playlist</strong> in the sidebar to get started,<br>
+         then paste any Bandcamp track or album URL to add music.</p>`
+      : `<p class="hint">Select a playlist from the sidebar.</p>`;
     emptyEl.classList.remove('hidden');
     listEl.innerHTML = '';
     colHdr.classList.add('hidden');
@@ -879,6 +885,14 @@ function renderContent() {
     : pl.trackIds.filter(id => state.tracks[id]);
   const ids = sortTrackIds(filterTrackIds(rawIds));
   const hasItems = ids.length > 0;
+  if (!hasItems) {
+    const hasFilters = activeFilters.genre !== '' || activeFilters.purchased !== 'all' || activeFilters.price !== 'all';
+    emptyEl.innerHTML = isSmart
+      ? `<p class="hint">No tracks match this smart playlist's criteria yet.</p>`
+      : hasFilters
+        ? `<p class="hint">No tracks match the active filters.</p>`
+        : `<p>No tracks yet.</p><p class="hint">Paste a Bandcamp track or album URL above to add music.</p>`;
+  }
   emptyEl.classList.toggle('hidden', hasItems);
   colHdr.classList.toggle('hidden', !hasItems);
   listEl.innerHTML = '';
