@@ -2384,32 +2384,61 @@ function closePullProgress() {
 }
 
 function streamSSE(url) {
-  return new Promise((resolve, reject) => {
-    const es = new EventSource(url);
+  let es;
+  let settled = false;
+  const TIMEOUT_MS = 90_000;
+
+  const promise = new Promise((resolve, reject) => {
+    es = new EventSource(url);
+
+    const timer = setTimeout(() => {
+      if (!settled) { es.close(); reject(new Error('Request timed out — Bandcamp may be slow. Please try again.')); }
+    }, TIMEOUT_MS);
+
     es.onmessage = e => {
       const msg = JSON.parse(e.data);
-      if (msg.error) { es.close(); reject(new Error(msg.error)); }
-      else if (msg.done) { es.close(); resolve(msg); }
-      else if (msg.progress) { updatePullProgress(msg.fetched, msg.total); }
+      if (msg.error) {
+        clearTimeout(timer); settled = true; es.close();
+        reject(new Error(msg.error));
+      } else if (msg.done) {
+        clearTimeout(timer); settled = true; es.close();
+        resolve(msg);
+      } else if (msg.progress) {
+        updatePullProgress(msg.fetched, msg.total);
+      }
     };
-    es.onerror = () => { es.close(); reject(new Error('Connection lost')); };
+    es.onerror = () => {
+      if (settled) return;
+      clearTimeout(timer); settled = true; es.close();
+      reject(new Error('Lost connection to server. Please try again.'));
+    };
   });
+
+  // Expose a cancel method
+  promise.cancel = () => {
+    if (!settled) { settled = true; es?.close(); }
+  };
+  return promise;
 }
+
+let activeSSE = null;
 
 async function pullCollection() {
   const btn = document.getElementById('pull-purchased-btn');
   btn.disabled = true;
   openPullProgress('Pulling Purchased from Bandcamp…');
   try {
-    const res = await streamSSE('/api/collection/pull');
+    activeSSE = streamSSE('/api/collection/pull');
+    const res = await activeSSE;
     const data = await api.get('/api/data');
     state.tracks = data.tracks;
     renderLibContent('purchased');
     renderLibraryCounts();
     toast(`Synced ${res.total} purchased item(s) — ${res.added} new, ${res.updated} updated`, 'success');
   } catch (e) {
-    toast(e.message, 'error');
+    if (e.message !== 'cancelled') toast(e.message, 'error');
   } finally {
+    activeSSE = null;
     closePullProgress();
     btn.disabled = false;
   }
@@ -2420,7 +2449,8 @@ async function pullWishlistDirect() {
   btn.disabled = true;
   openPullProgress('Pulling Wishlist from Bandcamp…');
   try {
-    const res = await streamSSE('/api/wishlist/pull');
+    activeSSE = streamSSE('/api/wishlist/pull');
+    const res = await activeSSE;
     if (!res.items?.length) { toast('Wishlist is empty.'); return; }
     const flat = [];
     for (const item of res.items) {
@@ -2439,8 +2469,9 @@ async function pullWishlistDirect() {
     renderLibraryCounts();
     toast(`Synced ${flat.length} wishlist item(s)`, 'success');
   } catch (e) {
-    toast(e.message, 'error');
+    if (e.message !== 'cancelled') toast(e.message, 'error');
   } finally {
+    activeSSE = null;
     closePullProgress();
     btn.disabled = false;
   }
@@ -3197,6 +3228,12 @@ function bindEvents() {
   // Lib view pull buttons
   document.getElementById('pull-purchased-btn').addEventListener('click', pullCollection);
   document.getElementById('pull-wishlist-header-btn').addEventListener('click', pullWishlistDirect);
+  document.getElementById('pull-progress-cancel').addEventListener('click', () => {
+    activeSSE?.cancel();
+    activeSSE = null;
+    closePullProgress();
+  });
+  window.addEventListener('beforeunload', () => activeSSE?.cancel());
   document.getElementById('wishlist-collapse-all-btn').addEventListener('click', collapseAllAlbums);
   document.getElementById('wishlist-expand-all-btn').addEventListener('click', expandAllAlbums);
 
