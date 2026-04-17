@@ -2005,6 +2005,17 @@ function createFolder(name = 'New Folder') {
   }, 50);
 }
 
+function duplicateActivePlaylist() {
+  if (!ui.activePlaylistId) return;
+  const src = getPlaylist(ui.activePlaylistId);
+  if (!src) return;
+  const copy = { id: crypto.randomUUID(), name: `${src.name} (copy)`, trackIds: [...src.trackIds] };
+  state.playlists.push(copy);
+  state.sidebarOrder.push({ type: 'playlist', id: copy.id });
+  schedSave(); renderSidebar(); selectPlaylist(copy.id);
+  toast(`Duplicated "${src.name}"`, 'success');
+}
+
 function deleteActivePlaylist() {
   if (!ui.activePlaylistId) return;
   const pl = getPlaylist(ui.activePlaylistId);
@@ -2560,6 +2571,7 @@ function bindEvents() {
   // Sidebar
   document.getElementById('new-playlist-btn').addEventListener('click', () => createPlaylist());
   document.getElementById('new-folder-btn').addEventListener('click', () => createFolder());
+  document.getElementById('duplicate-playlist-btn').addEventListener('click', duplicateActivePlaylist);
   document.getElementById('delete-playlist-btn').addEventListener('click', deleteActivePlaylist);
   document.getElementById('push-all-cart-btn').addEventListener('click', () => pushPlaylistToCart(ui.activePlaylistId));
   document.getElementById('push-selected-cart-btn').addEventListener('click', pushSelectedToCart);
