@@ -89,6 +89,32 @@
           <div id="playlist-title-row">
             <h2 id="playlist-title">Select a playlist</h2>
             <div id="playlist-actions" class="hidden">
+              <div class="filter-wrap">
+                <button class="btn-sm" id="filter-btn">⊟ Filter</button>
+                <div id="filter-panel" class="filter-panel hidden">
+                  <div class="filter-row">
+                    <label>Genre</label>
+                    <select id="filter-genre"><option value="">All genres</option></select>
+                  </div>
+                  <div class="filter-row">
+                    <label>Owned</label>
+                    <select id="filter-purchased">
+                      <option value="all">All</option>
+                      <option value="owned">Owned only</option>
+                      <option value="unowned">Unowned only</option>
+                    </select>
+                  </div>
+                  <div class="filter-row">
+                    <label>Price</label>
+                    <select id="filter-price">
+                      <option value="all">All</option>
+                      <option value="free">Free / name-your-price</option>
+                      <option value="paid">Paid only</option>
+                    </select>
+                  </div>
+                  <button id="filter-clear-btn" class="btn-sm" style="margin-top:6px;width:100%">Clear filters</button>
+                </div>
+              </div>
               <select id="sort-select" class="btn-sm sort-select" title="Sort by">
                 <option value="default">↕ Default</option>
                 <option value="artist">A→Z Artist</option>

@@ -1001,6 +1001,41 @@ html, body {
 }
 .btn-sm:hover { color: var(--text); }
 select.sort-select { cursor: pointer; appearance: auto; }
+.btn-sm.active-filter { color: var(--accent); border-color: var(--accent); }
+
+.filter-wrap { position: relative; }
+.filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-width: 210px;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+.filter-row label { flex-shrink: 0; }
+.filter-row select {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  color: var(--text1);
+  font-size: 12px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
 
 .btn-danger {
   background: transparent;

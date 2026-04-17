@@ -29,6 +29,7 @@ let ui = {
 let genreDropdownEl = null;
 let dragState = { type: null, id: null, sourceItem: null }; // type: 'playlist'|'folder'|'track'
 let globalSearchQuery = '';
+let activeFilters = { genre: '', purchased: 'all', price: 'all' }; // purchased: 'all'|'owned'|'unowned'; price: 'all'|'free'|'paid'
 let fxRates = {}; // exchange rates relative to GBP (e.g. { EUR: 1.17, USD: 1.27 })
 
 async function fetchExchangeRates() {
@@ -750,6 +751,42 @@ function clearGlobalSearch() {
   renderContent();
 }
 
+function populateGenreFilter() {
+  const pl = getPlaylist(ui.activePlaylistId);
+  const ids = pl ? pl.trackIds.filter(id => state.tracks[id]) : Object.keys(state.tracks);
+  const genres = [...new Set(ids.flatMap(id => state.tracks[id]?.tags ?? []))].sort();
+  const sel = document.getElementById('filter-genre');
+  sel.innerHTML = '<option value="">All genres</option>';
+  genres.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g; opt.textContent = g;
+    if (g === activeFilters.genre) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function updateFilterBtn() {
+  const active = activeFilters.genre !== '' || activeFilters.purchased !== 'all' || activeFilters.price !== 'all';
+  document.getElementById('filter-btn').classList.toggle('active-filter', active);
+  document.getElementById('filter-btn').textContent = active ? '⊟ Filter ●' : '⊟ Filter';
+}
+
+function filterTrackIds(ids) {
+  const { genre, purchased, price } = activeFilters;
+  if (genre === '' && purchased === 'all' && price === 'all') return ids;
+  return ids.filter(id => {
+    const t = state.tracks[id];
+    if (!t) return false;
+    if (genre && !(t.tags ?? []).includes(genre) && t.genre !== genre) return false;
+    if (purchased === 'owned'   && !t.purchased) return false;
+    if (purchased === 'unowned' &&  t.purchased) return false;
+    const p = parseFloat(t.price);
+    if (price === 'free' && (p > 0 || isNaN(p))) return false;
+    if (price === 'paid' && !(p > 0)) return false;
+    return true;
+  });
+}
+
 function sortTrackIds(ids) {
   if (ui.sortBy === 'default') return ids;
   const tracks = ids.map(id => state.tracks[id]).filter(Boolean);
@@ -788,7 +825,7 @@ function renderContent() {
   actionsEl.classList.remove('hidden');
 
   const rawIds = pl.trackIds.filter(id => state.tracks[id]);
-  const ids = sortTrackIds(rawIds);
+  const ids = sortTrackIds(filterTrackIds(rawIds));
   const hasItems = ids.length > 0;
   emptyEl.classList.toggle('hidden', hasItems);
   colHdr.classList.toggle('hidden', !hasItems);
@@ -2645,6 +2682,34 @@ function bindEvents() {
   document.getElementById('sort-select').addEventListener('change', e => {
     ui.sortBy = e.target.value;
     renderContent();
+  });
+
+  // Filter panel
+  document.getElementById('filter-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    const panel = document.getElementById('filter-panel');
+    const isOpen = !panel.classList.contains('hidden');
+    if (!isOpen) populateGenreFilter();
+    panel.classList.toggle('hidden', isOpen);
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.filter-wrap')) document.getElementById('filter-panel').classList.add('hidden');
+  });
+  document.getElementById('filter-genre').addEventListener('change', e => {
+    activeFilters.genre = e.target.value; updateFilterBtn(); renderContent();
+  });
+  document.getElementById('filter-purchased').addEventListener('change', e => {
+    activeFilters.purchased = e.target.value; updateFilterBtn(); renderContent();
+  });
+  document.getElementById('filter-price').addEventListener('change', e => {
+    activeFilters.price = e.target.value; updateFilterBtn(); renderContent();
+  });
+  document.getElementById('filter-clear-btn').addEventListener('click', () => {
+    activeFilters = { genre: '', purchased: 'all', price: 'all' };
+    document.getElementById('filter-genre').value = '';
+    document.getElementById('filter-purchased').value = 'all';
+    document.getElementById('filter-price').value = 'all';
+    updateFilterBtn(); renderContent();
   });
 
   // Global search
