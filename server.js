@@ -134,7 +134,7 @@ function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
     url: track.url ?? null,
     albumUrl: albumInfo?.url ?? track.album?.url ?? null,
     albumTrackNum: track.position ?? null,
-    title: track.name,
+    title: track.name ?? track.title ?? 'Unknown Track',
     artist: track.artist?.name ?? albumInfo?.artist?.name ?? track.publisher?.name ?? 'Unknown Artist',
     albumTitle: albumInfo?.name ?? track.album?.name ?? null,
     artwork: track.imageUrl ?? albumInfo?.imageUrl ?? null,
