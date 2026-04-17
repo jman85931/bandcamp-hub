@@ -12,7 +12,8 @@
   "permissions": [
     "tabs",
     "scripting",
-    "notifications"
+    "notifications",
+    "cookies"
   ],
   "host_permissions": [
     "https://*.bandcamp.com/*",

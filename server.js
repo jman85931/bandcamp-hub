@@ -107,43 +107,6 @@ function extractBcIds(track) {
   return { bcTrackId: track.id ?? null, bcAlbumId: null, bcBandId: null };
 }
 
-// ---------------------------------------------------------------------------
-// Session cookie helpers for cart push
-// ---------------------------------------------------------------------------
-
-function parseFanId(cookieStr) {
-  const sessionMatch = cookieStr.match(/(?:^|;\s*)session=([^;]+)/);
-  if (!sessionMatch) return null;
-  try {
-    const decoded = decodeURIComponent(sessionMatch[1]);
-    const rMatch = decoded.match(/r:(\[[^\]]+\])/);
-    if (rMatch) {
-      const tokens = JSON.parse(rMatch[1]);
-      for (const t of tokens) {
-        // old format: c5038936c0x
-        const m1 = t.match(/c(\d+)c0x/);
-        if (m1) return m1[1];
-      }
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-
-function findRefToken(cookieStr, trackId) {
-  if (!trackId) return null;
-  const sessionMatch = cookieStr.match(/(?:^|;\s*)session=([^;]+)/);
-  if (!sessionMatch) return null;
-  try {
-    const decoded = decodeURIComponent(sessionMatch[1]);
-    const rMatch = decoded.match(/r:(\[[^\]]+\])/);
-    if (rMatch) {
-      const tokens = JSON.parse(rMatch[1]);
-      return tokens.find(t => t.includes(`X0t${trackId}x`)) ?? null;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-
 function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
   const { bcTrackId, bcAlbumId, bcBandId } = extractBcIds(track);
 
@@ -400,6 +363,19 @@ app.get('/api/wishlist/pull', async (req, res) => {
         tracks: (item.tracks ?? []).map(t => buildTrackRecord(t, item))
       };
     });
+
+    // First-page items from bcfetch often have no track listings.
+    // Fetch missing tracks for album items so the wishlist can display
+    // the same expandable album groups as the playlist view.
+    const albums = items.filter(it => it.type === 'album' && !it.tracks?.length && it.url);
+    for (const album of albums) {
+      try {
+        const albumData = await bcfetch.album.getInfo({ albumUrl: album.url });
+        album.tracks   = (albumData.tracks ?? []).map(t => buildTrackRecord(t, { ...albumData, url: album.url }));
+        album.numTracks = album.tracks.length || album.numTracks;
+      } catch { /* leave tracks empty — album header still shows */ }
+    }
+
     send({ done: true, items, total: items.length });
   } catch (err) {
     console.error('wishlist error:', err.message);
@@ -591,96 +567,6 @@ function parseCartItems(html) {
   }
   return items;
 }
-
-// ---------------------------------------------------------------------------
-// Cart push — add item to Bandcamp cart
-// The exact endpoint/fields may need adjustment; returns bandcamp URL as fallback
-// ---------------------------------------------------------------------------
-
-app.post('/api/cart/push', async (req, res) => {
-  const { trackId, bcTrackId, bcAlbumId, bcBandId, price, currency, trackUrl } = req.body;
-  const data = readData();
-
-  if (!data.settings.bandcampCookie) {
-    return res.status(400).json({ error: 'Bandcamp cookie required in Settings' });
-  }
-  if (!bcAlbumId && !bcTrackId) {
-    return res.status(400).json({ error: 'Missing Bandcamp item IDs' });
-  }
-  if (!trackUrl) {
-    return res.status(400).json({ error: 'trackUrl required to determine artist endpoint' });
-  }
-
-  let artistOrigin;
-  try {
-    const u = new URL(trackUrl);
-    artistOrigin = u.origin;
-  } catch {
-    return res.status(400).json({ error: 'Invalid trackUrl' });
-  }
-
-  const storedTrack = trackId ? data.tracks[trackId] : null;
-  const bandId = bcBandId ?? storedTrack?.bcBandId ?? null;
-  const fanId    = parseFanId(data.settings.bandcampCookie) ?? data.settings.fanId ?? null;
-  const refToken = findRefToken(data.settings.bandcampCookie, bcTrackId);
-  console.log('[cart/push] debug — fanId:', fanId, '| bcTrackId:', bcTrackId, '| artistOrigin:', artistOrigin, '| price:', price);
-
-  try {
-    const fields = new URLSearchParams();
-    fields.set('req',        'add');
-    fields.set('local_id',   Math.random().toString());
-    fields.set('item_type',  bcTrackId ? 't' : 'p');
-    fields.set('item_id',    String(bcTrackId ?? bcAlbumId));
-    fields.set('unit_price', price != null ? String(parseFloat(price)) : '1');
-    fields.set('quantity',   '1');
-    fields.set('option_id',  '');
-    fields.set('discount_id', '');
-    fields.set('purchase_note', '');
-    if (bandId)   fields.set('band_id',   String(bandId));
-    if (fanId)    fields.set('fan_id',    String(fanId));
-    if (refToken) fields.set('ref_token', refToken);
-    fields.set('ip_country_code', 'GB');
-    fields.set('is_cardable', 'true');
-    fields.set('cart_length', '1');
-    fields.set('sync_num',    '1');
-    fields.set('req_id',      Math.random().toString());
-
-    const cartEndpoint = `${artistOrigin}/cart/cb`;
-    console.log('[cart/push] endpoint:', cartEndpoint);
-    console.log('[cart/push] payload:', fields.toString());
-    const response = await fetch(cartEndpoint, {
-      method: 'POST',
-      headers: {
-        'Cookie':           data.settings.bandcampCookie,
-        'Content-Type':     'application/x-www-form-urlencoded',
-        'User-Agent':       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Origin':           artistOrigin,
-        'Referer':          trackUrl,
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: fields.toString()
-    });
-
-    const responseText = await response.text();
-    console.log('[cart/push] status:', response.status);
-    console.log('[cart/push] set-cookie:', response.headers.get('set-cookie'));
-    console.log('[cart/push] response:', responseText.slice(0, 800));
-    let bcJson = null;
-    try { bcJson = JSON.parse(responseText); } catch { /* not JSON */ }
-
-    const reqIdEchoed = bcJson?.req_id != null;
-    res.json({
-      ok: response.ok && reqIdEchoed,
-      status: response.status,
-      bcResponse: bcJson,
-      message: bcJson?.error ?? (!reqIdEchoed ? 'Cart add not processed' : null),
-      fallbackUrl: 'https://bandcamp.com/cart'
-    });
-  } catch (err) {
-    console.error('cart push error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Track refresh — re-fetch metadata from Bandcamp, preserve user data

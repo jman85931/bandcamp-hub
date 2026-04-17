@@ -4,7 +4,19 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
   if (message.action === 'pushCart')   { handlePushCart(sendResponse);                              return true; }
   if (message.action === 'getCart')    { handleGetCart(sendResponse);                               return true; }
   if (message.action === 'removeCart') { handleRemoveCart(message.removeItems, sendResponse);       return true; }
+  if (message.action === 'getCookie')  { handleGetCookie(sendResponse);                             return true; }
 });
+
+async function handleGetCookie(sendResponse) {
+  try {
+    const cookies = await chrome.cookies.getAll({ domain: 'bandcamp.com' });
+    if (!cookies.length) { sendResponse({ ok: false, error: 'No Bandcamp cookies found — make sure you are logged in to bandcamp.com' }); return; }
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    sendResponse({ ok: true, cookie: cookieStr });
+  } catch (err) {
+    sendResponse({ ok: false, error: err.message });
+  }
+}
 
 async function handleGetCart(sendResponse) {
   // Must use the /cart page specifically — Sidecart only populates cart_items there
@@ -96,12 +108,13 @@ async function handleRemoveCart(removeItems, sendResponse) {
     let ok = 0, fail = 0;
 
     for (const { localId, itemId } of removeItems) {
-      const id = localId ?? itemId;
-      if (id == null) { fail++; continue; }
+      // Only use localId (cart slot id from d.id) — itemId is the Bandcamp item/track id
+      // and is NOT valid as the del request's id parameter; using it causes a cart wipe.
+      if (localId == null) { fail++; continue; }
 
       // Guard: reject non-integer IDs — sending a float to Bandcamp wipes the cart
-      const intId = Math.round(Number(id));
-      if (!Number.isFinite(intId) || intId <= 0 || Math.abs(intId - Number(id)) > 0.001) {
+      const intId = Math.round(Number(localId));
+      if (!Number.isFinite(intId) || intId <= 0 || Math.abs(intId - Number(localId)) > 0.001) {
         fail++;
         continue;
       }

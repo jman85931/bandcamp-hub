@@ -625,6 +625,8 @@ function renderLibContent(view) {
   document.getElementById('remove-selected-cart-btn').classList.add('hidden');
   document.getElementById('clear-cart-btn').classList.add('hidden');
   document.getElementById('pull-wishlist-header-btn').classList.add('hidden');
+  document.getElementById('wishlist-collapse-all-btn').classList.add('hidden');
+  document.getElementById('wishlist-expand-all-btn').classList.add('hidden');
   pullActions.classList.remove('hidden');
 
   let items = [];
@@ -643,6 +645,9 @@ function renderLibContent(view) {
     titleEl.textContent = 'Wishlist';
     items = state.wishlistItems;
     document.getElementById('pull-wishlist-header-btn').classList.remove('hidden');
+    const hasWishlistAlbums = state.wishlistItems.some(it => it.albumTitle || it.type === 'album');
+    document.getElementById('wishlist-collapse-all-btn').classList.toggle('hidden', !hasWishlistAlbums);
+    document.getElementById('wishlist-expand-all-btn').classList.toggle('hidden', !hasWishlistAlbums);
   }
 
   listEl.innerHTML = '';
@@ -746,10 +751,14 @@ function calcPlaylistPriceGBP(ids) {
 
 function groupLibItems(items) {
   const groups = [];
-  const albumMap = new Map(); // "artist|||albumTitle" → group index
+  const albumMap = new Map();
   for (const item of items) {
-    if (item.albumTitle) {
-      const key = `${item.artist ?? ''}|||${item.albumTitle}`;
+    // Prefer albumUrl as key (unique per album, same as playlist grouping).
+    // Fall back to artist|||albumTitle for cart items which don't carry albumUrl.
+    const key = item.albumUrl
+      ? item.albumUrl
+      : (item.albumTitle ? `${item.artist ?? ''}|||${item.albumTitle}` : null);
+    if (key) {
       if (albumMap.has(key)) {
         groups[albumMap.get(key)].items.push(item);
       } else {
@@ -760,8 +769,15 @@ function groupLibItems(items) {
       groups.push({ type: 'track', item });
     }
   }
-  // Demote single-track albums to plain rows
-  return groups.map(g => g.type === 'album' && g.items.length === 1 ? { type: 'track', item: g.items[0] } : g);
+  // Demote single-item album groups to plain rows — same as playlists.
+  // Exception: if the item itself is a whole album/EP (type === 'album'), keep its header —
+  // it's a genuinely wishlisted album, not a lone track that happens to have an albumTitle.
+  return groups.map(g => {
+    if (g.type === 'album' && g.items.length === 1 && g.items[0].type !== 'album') {
+      return { type: 'track', item: g.items[0] };
+    }
+    return g;
+  });
 }
 
 function buildLibTrackRow(item, num, view) {
@@ -817,14 +833,23 @@ function buildLibAlbumGroup(group, view) {
   li.className = 'album-group' + (collapsed ? ' collapsed' : '');
   li.dataset.albumUrl = key;
 
-  const totalDur = group.items.reduce((s, t) => s + (t.duration ?? 0), 0);
+  const isAlbumItem = group.items.length === 1 && group.items[0].type === 'album';
+  const albumItem   = isAlbumItem ? group.items[0] : null;
+  const innerTracks = isAlbumItem ? (albumItem.tracks ?? []) : group.items;
+
+  const totalDur = innerTracks.reduce((s, t) => s + (t.duration ?? 0), 0);
   const durStr   = totalDur > 0 ? fmtDuration(totalDur) : '';
-  const countStr = `${group.items.length} track${group.items.length !== 1 ? 's' : ''}`;
+  const n        = isAlbumItem ? (albumItem.numTracks ?? innerTracks.length) : group.items.length;
+  const countStr = `${n} track${n !== 1 ? 's' : ''}`;
   const metaParts = [countStr, durStr].filter(Boolean);
 
-  // Album price: sum all track prices
+  // Album price: from album item price or sum of inner track prices
   let albumPrice = 0;
-  group.items.forEach(t => { if (t.price) albumPrice += toGBP(parseFloat(t.price), t.currency); });
+  if (isAlbumItem && albumItem.price) {
+    albumPrice = toGBP(parseFloat(albumItem.price), albumItem.currency);
+  } else {
+    innerTracks.forEach(t => { if (t.price) albumPrice += toGBP(parseFloat(t.price), t.currency); });
+  }
   const albumPriceStr = albumPrice > 0 ? fmtGBP(albumPrice) : '';
 
   const artHtml = group.artwork
@@ -848,9 +873,7 @@ function buildLibAlbumGroup(group, view) {
     <ul class="album-group-tracks"></ul>`;
 
   const tracksUl = li.querySelector('.album-group-tracks');
-  group.items.forEach((item, idx) => {
-    tracksUl.appendChild(buildLibTrackRow(item, idx + 1, view));
-  });
+  innerTracks.forEach((t, idx) => tracksUl.appendChild(buildLibTrackRow(t, idx + 1, view)));
 
   if (view === 'cart') {
     const albumCb = li.querySelector('.album-select-cb');
@@ -876,9 +899,9 @@ function buildLibAlbumGroup(group, view) {
 
   li.querySelector('.album-group-header').addEventListener('click', e => {
     if (e.target.closest('.album-group-play-btn')) {
-      const first = group.items.find(t => t.url);
+      const first = innerTracks.find(t => t.url) ?? (albumItem?.url ? albumItem : null);
       if (first?.url) window.open(first.url, '_blank');
-    } else if (!e.target.closest('.album-select-cb')) {
+    } else if (!e.target.closest('.album-select-cb') && innerTracks.length > 0) {
       toggleAlbumGroup(key, li);
     }
   });
@@ -911,11 +934,13 @@ async function removeSelectedCartItems() {
 
   // Collect the items being removed
   const toRemove = state.cartItems.filter(item => ui.selectedCartIds.has(String(item.id ?? item.title)));
-  // Pass both localId (cart slot) and itemId (Bandcamp track ID) — the extension
-  // tries matching by whichever field the current Sidecart viewmodel exposes
+
+  // Sort: individual tracks first, then album/EP packages — safer ordering for sequential del requests
+  const typeOrder = t => (t === 't' ? 0 : 1);
   const removeItems = toRemove
     .filter(item => item.id != null || item.itemId != null)
-    .map(item => ({ localId: item.id ?? null, itemId: item.itemId ?? null }));
+    .map(item => ({ localId: item.id ?? null, itemId: item.itemId ?? null, itemType: item.itemType ?? 't' }))
+    .sort((a, b) => typeOrder(a.itemType) - typeOrder(b.itemType));
 
   // Remove locally immediately
   state.cartItems = state.cartItems.filter(item => !ui.selectedCartIds.has(String(item.id ?? item.title)));
@@ -1249,6 +1274,22 @@ function toggleAlbumGroup(albumUrl, liEl) {
     ui.collapsedAlbums.add(albumUrl);
     liEl.classList.add('collapsed');
   }
+}
+
+function collapseAllAlbums() {
+  document.querySelectorAll('#track-list .album-group').forEach(li => {
+    const key = li.dataset.albumUrl;
+    if (key) ui.collapsedAlbums.add(key);
+    li.classList.add('collapsed');
+  });
+}
+
+function expandAllAlbums() {
+  document.querySelectorAll('#track-list .album-group').forEach(li => {
+    const key = li.dataset.albumUrl;
+    if (key) ui.collapsedAlbums.delete(key);
+    li.classList.remove('collapsed');
+  });
 }
 
 function playAlbumGroup(group, playlistId) {
@@ -1965,8 +2006,14 @@ async function pullWishlistDirect() {
     if (!res.items?.length) { toast('Wishlist is empty.'); return; }
     const flat = [];
     for (const item of res.items) {
-      if (item.type === 'album' && item.tracks?.length) flat.push(...item.tracks);
-      else flat.push(item);
+      if (item.type === 'album' && item.tracks?.length > 1) {
+        // Multi-track album: flatten so tracks group under a shared header
+        flat.push(...item.tracks);
+      } else {
+        // Single-track EP, trackless album, or individual track: keep as-is so
+        // album items retain type:'album' and get an album group header
+        flat.push(item);
+      }
     }
     state.wishlistItems = flat.filter(Boolean);
     schedSave();
@@ -2036,12 +2083,31 @@ async function refreshCartItems() {
 }
 
 function clearCartItems() {
+  const typeOrder = t => (t === 't' ? 0 : 1);
+  const removeItems = state.cartItems
+    .filter(item => item.id != null || item.itemId != null)
+    .map(item => ({ localId: item.id ?? null, itemId: item.itemId ?? null, itemType: item.itemType ?? 't' }))
+    .sort((a, b) => typeOrder(a.itemType) - typeOrder(b.itemType));
+
   state.cartItems = [];
+  ui.selectedCartIds.clear();
   schedSave();
   renderLibContent('cart');
   renderLibraryCounts();
   document.getElementById('refresh-cart-btn').classList.add('hidden');
   document.getElementById('clear-cart-btn').classList.add('hidden');
+  document.getElementById('remove-selected-cart-btn').classList.add('hidden');
+
+  const extId = getExtensionId();
+  if (extId && removeItems.length) {
+    toast(`Clearing ${removeItems.length} item(s) from Bandcamp cart…`);
+    chrome.runtime.sendMessage(extId, { action: 'removeCart', removeItems }, response => {
+      if (chrome.runtime.lastError || !response) return;
+      if (response.error) toast(`Bandcamp clear: ${response.error}`, 'error');
+      else if (response.fail > 0) toast(`Cleared ${response.ok} from Bandcamp, ${response.fail} failed`, 'error');
+      else toast(`Bandcamp cart cleared`, 'success');
+    });
+  }
 }
 
 function renderCartItems(items) {
@@ -2308,6 +2374,22 @@ function saveSettings() {
   schedSave(); closeModal('settings-modal'); toast('Settings saved', 'success');
 }
 
+function fetchCookieFromExtension() {
+  const extId = getExtensionId();
+  if (!extId) { toast('Extension not installed — load it in chrome://extensions first', 'error'); return; }
+  const btn = document.getElementById('fetch-cookie-btn');
+  btn.disabled = true; btn.textContent = '⟳ Fetching…';
+  chrome.runtime.sendMessage(extId, { action: 'getCookie' }, response => {
+    btn.disabled = false; btn.textContent = '⬇ Fetch from Extension';
+    if (chrome.runtime.lastError || !response?.ok) {
+      toast(response?.error ?? chrome.runtime.lastError?.message ?? 'Could not fetch cookie', 'error');
+      return;
+    }
+    document.getElementById('cookie-input').value = response.cookie;
+    toast('Cookie fetched — click Save Settings to apply', 'success');
+  });
+}
+
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
 // ── Event bindings ────────────────────────────────────────────────────────
@@ -2333,6 +2415,8 @@ function bindEvents() {
   document.getElementById('push-all-cart-btn').addEventListener('click', () => pushPlaylistToCart(ui.activePlaylistId));
   document.getElementById('push-selected-cart-btn').addEventListener('click', pushSelectedToCart);
   document.getElementById('refresh-all-btn').addEventListener('click', refreshAllTracks);
+  document.getElementById('playlist-collapse-all-btn').addEventListener('click', collapseAllAlbums);
+  document.getElementById('playlist-expand-all-btn').addEventListener('click', expandAllAlbums);
   document.getElementById('playlist-search').addEventListener('input', e => {
     ui.playlistSearchQuery = e.target.value;
     renderSidebar();
@@ -2389,6 +2473,8 @@ function bindEvents() {
   // Lib view pull buttons
   document.getElementById('pull-purchased-btn').addEventListener('click', pullCollection);
   document.getElementById('pull-wishlist-header-btn').addEventListener('click', pullWishlistDirect);
+  document.getElementById('wishlist-collapse-all-btn').addEventListener('click', collapseAllAlbums);
+  document.getElementById('wishlist-expand-all-btn').addEventListener('click', expandAllAlbums);
 
   // Cart / Wishlist header pull buttons
   document.getElementById('pull-cart-header-btn').addEventListener('click', pullCartDirect);
@@ -2398,6 +2484,7 @@ function bindEvents() {
 
   // Settings
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
+  document.getElementById('fetch-cookie-btn').addEventListener('click', fetchCookieFromExtension);
 
   // Close buttons
   document.querySelectorAll('.modal-close').forEach(btn => {

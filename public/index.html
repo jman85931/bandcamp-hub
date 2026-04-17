@@ -83,6 +83,8 @@
               <button class="btn-sm" id="push-all-cart-btn">Push All to Cart</button>
               <button class="btn-sm hidden" id="push-selected-cart-btn">Push Selected to Cart</button>
               <button class="btn-sm" id="refresh-all-btn">↻ Refresh All</button>
+              <button class="btn-sm" id="playlist-collapse-all-btn">⊟ Collapse All</button>
+              <button class="btn-sm" id="playlist-expand-all-btn">⊞ Expand All</button>
               <button class="btn-sm btn-danger" id="delete-playlist-btn">Delete Playlist</button>
             </div>
             <div id="lib-pull-actions" class="hidden">
@@ -92,6 +94,8 @@
               <button class="btn-sm btn-danger hidden" id="remove-selected-cart-btn">✕ Remove Selected</button>
               <button class="btn-sm btn-danger" id="clear-cart-btn">✕ Clear Cart</button>
               <button class="btn-sm" id="pull-wishlist-header-btn">⬇ Pull from Bandcamp</button>
+              <button class="btn-sm hidden" id="wishlist-collapse-all-btn">⊟ Collapse All</button>
+              <button class="btn-sm hidden" id="wishlist-expand-all-btn">⊞ Expand All</button>
             </div>
           </div>
           <div id="add-track-bar">
@@ -258,10 +262,10 @@
         <div class="settings-field">
           <label for="cookie-input">Bandcamp Session Cookie</label>
           <textarea id="cookie-input" rows="3" placeholder="Paste your Bandcamp cookie string here..."></textarea>
+          <button id="fetch-cookie-btn" class="btn-secondary" style="margin-top:6px" type="button">⬇ Fetch from Extension</button>
           <p class="settings-hint">
-            In Chrome: DevTools → Application → Storage → Cookies → bandcamp.com<br>
-            Copy the <strong>full cookie string</strong> (all cookies joined with "; ")<br>
-            Required for wishlist sync and high-quality streams.
+            Required for wishlist sync and high-quality streams.<br>
+            If the extension is installed, click the button above — otherwise paste manually via DevTools → Application → Cookies → bandcamp.com.
           </p>
         </div>
         <div class="settings-field">
