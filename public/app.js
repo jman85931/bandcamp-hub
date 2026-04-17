@@ -2789,17 +2789,24 @@ function batchSetGenre(trackIds) {
 const BUILT_IN_SMART = [
   { name: 'Recently Added', criteria: { addedWithin: 30 } },
   { name: 'Unowned',        criteria: { purchased: 'unowned' } },
-  { name: 'Free',           criteria: { price: 'free' } }
+  { name: 'Free',           criteria: { price: 'free', purchased: 'unowned' } }
 ];
 
 function ensureBuiltInSmartPlaylists() {
   const hasAny = state.playlists.some(p => p.type === 'smart');
-  if (hasAny) return;
-  for (const def of BUILT_IN_SMART) {
-    const pl = { id: crypto.randomUUID(), type: 'smart', name: def.name, criteria: def.criteria, trackIds: [] };
-    state.playlists.push(pl);
+  if (!hasAny) {
+    for (const def of BUILT_IN_SMART) {
+      state.playlists.push({ id: crypto.randomUUID(), type: 'smart', name: def.name, criteria: def.criteria, trackIds: [] });
+    }
+    schedSave();
+    return;
   }
-  schedSave();
+  // Migrate existing "Free" built-in if it lacks the unowned filter
+  const freePl = state.playlists.find(p => p.type === 'smart' && p.name === 'Free');
+  if (freePl && freePl.criteria?.purchased !== 'unowned') {
+    freePl.criteria = { ...freePl.criteria, purchased: 'unowned' };
+    schedSave();
+  }
 }
 
 function describeSmartCriteria(c) {
