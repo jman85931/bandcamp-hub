@@ -42,6 +42,9 @@ function applySettings(data) {
   }
 }
 
+const withTimeout = (p, ms = 20000) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Request timed out — Bandcamp may be slow, please try again')), ms))]);
+
 // ---------------------------------------------------------------------------
 // Track formatting helpers
 // ---------------------------------------------------------------------------
@@ -188,22 +191,17 @@ app.post('/api/track/lookup', async (req, res) => {
 
   try {
     if (url.includes('/track/')) {
-      const track = await bcfetch.track.getInfo({ trackUrl: url, includeRawData: true });
-      // If the track belongs to an album, also fetch album for richer metadata
+      const track = await withTimeout(bcfetch.track.getInfo({ trackUrl: url, includeRawData: true }));
       const albumUrl = track.raw?.basic?.inAlbum?.['@id'] ?? track.album?.url ?? null;
       if (albumUrl) {
-        const album = await bcfetch.album.getInfo({ albumUrl, includeRawData: true });
+        const album = await withTimeout(bcfetch.album.getInfo({ albumUrl, includeRawData: true }));
         const t = album.tracks?.find(x => x.name === track.name) ?? track;
         res.json({ type: 'track', items: [buildTrackRecord(t, album, track)] });
       } else {
         res.json({ type: 'track', items: [buildTrackRecord(track)] });
       }
     } else {
-      // Album URL
-      const album = await bcfetch.album.getInfo({
-        albumUrl: url,
-        includeRawData: true
-      });
+      const album = await withTimeout(bcfetch.album.getInfo({ albumUrl: url, includeRawData: true }));
       const items = (album.tracks ?? []).map(t => buildTrackRecord(t, album));
       res.json({ type: 'album', albumName: album.name, albumArtwork: album.imageUrl, items });
     }
@@ -234,11 +232,11 @@ app.get('/api/track/stream', async (req, res) => {
 
     if (track.url?.includes('/track/')) {
       // Standalone track page
-      const info = await bcfetch.track.getInfo({ trackUrl: track.url, includeRawData: false });
+      const info = await withTimeout(bcfetch.track.getInfo({ trackUrl: track.url, includeRawData: false }));
       streamUrl = useCookie ? (info.streamUrlHQ ?? info.streamUrl) : info.streamUrl;
     } else if (track.albumUrl) {
       // Album track — re-fetch album and find by position
-      const albumInfo = await bcfetch.album.getInfo({ albumUrl: track.albumUrl, includeRawData: false });
+      const albumInfo = await withTimeout(bcfetch.album.getInfo({ albumUrl: track.albumUrl, includeRawData: false }));
       const t = track.albumTrackNum != null
         ? albumInfo.tracks?.find(x => x.position === track.albumTrackNum)
         : albumInfo.tracks?.find(x => x.name === track.title);
