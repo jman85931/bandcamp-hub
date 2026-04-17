@@ -6,7 +6,8 @@ let state = {
   folders: [],
   sidebarOrder: [],
   cartItems: [],
-  wishlistItems: []
+  wishlistItems: [],
+  libQueue: []   // runtime queue for playing wishlist/cart albums (not persisted)
 };
 
 let ui = {
@@ -602,10 +603,12 @@ function selectPlaylist(id) {
 function selectLibView(view) {
   ui.activeLibView = view;
   ui.activePlaylistId = null;
+  ui.selectedTrackId = null;
   ui.selectedTrackIds.clear();
   ui.selectedCartIds.clear();
   renderSidebar();
   renderLibContent(view);
+  renderDetailPanel();
 }
 
 function renderLibContent(view) {
@@ -899,8 +902,8 @@ function buildLibAlbumGroup(group, view) {
 
   li.querySelector('.album-group-header').addEventListener('click', e => {
     if (e.target.closest('.album-group-play-btn')) {
-      const first = innerTracks.find(t => t.url) ?? (albumItem?.url ? albumItem : null);
-      if (first?.url) window.open(first.url, '_blank');
+      const playable = innerTracks.filter(t => t.id);
+      if (playable.length) playLibQueue(playable);
     } else if (!e.target.closest('.album-select-cb') && innerTracks.length > 0) {
       toggleAlbumGroup(key, li);
     }
@@ -1587,10 +1590,16 @@ async function playTrack(trackId, playlistId) {
   } finally {
     setLoading(false);
   }
+  if (!document.getElementById('queue-panel').classList.contains('hidden')) renderQueuePanel();
+}
+
+function queueTrackIds() {
+  if (player.playlistId === '__lib__') return state.libQueue.map(t => t.id).filter(Boolean);
+  return playlistTrackIds(player.playlistId);
 }
 
 function playNext() {
-  const ids = playlistTrackIds(player.playlistId);
+  const ids = queueTrackIds();
   if (!ids.length) return;
   const idx = ids.indexOf(player.trackId);
   const next = ids[(idx + 1) % ids.length];
@@ -1598,7 +1607,7 @@ function playNext() {
 }
 
 function playPrev() {
-  const ids = playlistTrackIds(player.playlistId);
+  const ids = queueTrackIds();
   if (!ids.length) return;
   const idx = ids.indexOf(player.trackId);
   const prev = ids[(idx - 1 + ids.length) % ids.length];
@@ -1609,6 +1618,103 @@ function togglePlayPause() {
   if (!player.trackId) return;
   if (audioEl.paused) { audioEl.play().then(() => setPlaying(true)).catch(() => {}); }
   else { audioEl.pause(); setPlaying(false); }
+}
+
+function playLibQueue(tracks) {
+  if (!tracks?.length) return;
+  state.libQueue = tracks;
+  // Register tracks in state.tracks in-memory so playTrack can look them up via stream API
+  tracks.forEach(t => { if (t.id) state.tracks[t.id] = t; });
+  playTrack(tracks[0].id, '__lib__');
+}
+
+// ── Queue panel ───────────────────────────────────────────────────────────
+let queueDrag = { fromIdx: null };
+
+function toggleQueuePanel() {
+  const panel = document.getElementById('queue-panel');
+  const isHidden = panel.classList.contains('hidden');
+  if (isHidden) { renderQueuePanel(); panel.classList.remove('hidden'); }
+  else panel.classList.add('hidden');
+}
+
+function renderQueuePanel() {
+  const list = document.getElementById('queue-list');
+  list.innerHTML = '';
+
+  const ids = queueTrackIds();
+  if (!ids.length) {
+    list.innerHTML = '<li class="queue-empty">Nothing queued — play a track first</li>';
+    return;
+  }
+
+  const curIdx = ids.indexOf(player.trackId);
+
+  ids.forEach((tid, i) => {
+    const t = state.tracks[tid];
+    if (!t) return;
+
+    const li = document.createElement('li');
+    li.className = 'queue-row' + (i === curIdx ? ' queue-current' : '');
+    li.draggable = true;
+    li.dataset.idx = i;
+
+    li.innerHTML = `
+      <span class="queue-drag-handle" title="Drag to reorder">⠿</span>
+      ${t.artwork ? `<img class="queue-art" src="${t.artwork}" alt="">` : '<span class="queue-art-placeholder"></span>'}
+      <span class="queue-track-info">
+        <span class="queue-title">${t.title}</span>
+        <span class="queue-artist">${t.artist}</span>
+      </span>
+      <span class="queue-duration">${t.duration ? fmtDuration(t.duration) : ''}</span>
+    `;
+
+    li.addEventListener('click', e => {
+      if (e.target.closest('.queue-drag-handle')) return;
+      playTrack(tid, player.playlistId);
+    });
+
+    li.addEventListener('dragstart', e => {
+      queueDrag.fromIdx = i;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => li.classList.add('dragging'), 0);
+    });
+    li.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      document.querySelectorAll('.queue-row.drag-over').forEach(el => el.classList.remove('drag-over'));
+    });
+    li.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.queue-row.drag-over').forEach(el => el.classList.remove('drag-over'));
+      li.classList.add('drag-over');
+    });
+    li.addEventListener('drop', e => {
+      e.preventDefault();
+      li.classList.remove('drag-over');
+      const fromIdx = queueDrag.fromIdx;
+      const toIdx = i;
+      if (fromIdx === null || fromIdx === toIdx) return;
+      queueDrag.fromIdx = null;
+
+      if (player.playlistId === '__lib__') {
+        const moved = state.libQueue.splice(fromIdx, 1)[0];
+        state.libQueue.splice(toIdx, 0, moved);
+      } else {
+        const pl = getPlaylist(player.playlistId);
+        if (!pl) return;
+        const allIds = [...pl.trackIds];
+        const movedId = allIds.splice(fromIdx, 1)[0];
+        allIds.splice(toIdx, 0, movedId);
+        pl.trackIds = allIds;
+        schedSave();
+        if (ui.activePlaylistId === player.playlistId) renderContent();
+      }
+      renderQueuePanel();
+    });
+
+    list.appendChild(li);
+  });
 }
 
 // ── Context menu ──────────────────────────────────────────────────────────
@@ -1682,7 +1788,7 @@ function handleContextAction(action) {
 }
 
 function queueNext(trackId) {
-  if (!player.playlistId) return;
+  if (!player.playlistId) { toast('Start playing a track first', 'warn'); return; }
   const pl = getPlaylist(player.playlistId);
   if (!pl) return;
   const curIdx = pl.trackIds.indexOf(player.trackId);
@@ -1690,7 +1796,9 @@ function queueNext(trackId) {
   const existing = pl.trackIds.indexOf(trackId);
   if (existing >= 0) pl.trackIds.splice(existing, 1);
   pl.trackIds.splice(insertAt, 0, trackId);
-  schedSave(); renderContent(); toast('Playing next');
+  schedSave(); renderContent();
+  if (!document.getElementById('queue-panel').classList.contains('hidden')) renderQueuePanel();
+  toast('Playing next');
 }
 
 // ── Track management ──────────────────────────────────────────────────────
@@ -2429,6 +2537,8 @@ function bindEvents() {
   });
 
   // Player controls
+  document.getElementById('queue-btn').addEventListener('click', toggleQueuePanel);
+  document.getElementById('queue-close-btn').addEventListener('click', toggleQueuePanel);
   document.getElementById('play-btn').addEventListener('click', togglePlayPause);
   document.getElementById('next-btn').addEventListener('click', playNext);
   document.getElementById('prev-btn').addEventListener('click', () => {
@@ -2503,6 +2613,7 @@ function bindEvents() {
     if (e.key === 'ArrowLeft')  { e.preventDefault(); audioEl.currentTime -= 10; }
     if (e.key === 'Escape') {
       hideContextMenu();
+      document.getElementById('queue-panel').classList.add('hidden');
       document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
     }
   });
