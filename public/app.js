@@ -2660,6 +2660,79 @@ function saveSettings() {
   schedSave(); closeModal('settings-modal'); toast('Settings saved', 'success');
 }
 
+function openStats() {
+  const tracks = Object.values(state.tracks);
+  const total = tracks.length;
+  const owned = tracks.filter(t => t.purchased).length;
+  const totalDuration = tracks.reduce((s, t) => s + (t.duration || 0), 0);
+  const totalValue = tracks
+    .filter(t => !t.purchased && parseFloat(t.price) > 0)
+    .reduce((s, t) => s + toGBP(parseFloat(t.price), t.currency), 0);
+
+  // Genre breakdown
+  const genreCounts = {};
+  tracks.forEach(t => (t.tags ?? []).forEach(g => { genreCounts[g] = (genreCounts[g] || 0) + 1; }));
+  const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // Playlist breakdown
+  const playlistStats = state.playlists.map(pl => ({
+    name: pl.name,
+    count: pl.trackIds.filter(id => state.tracks[id]).length
+  })).sort((a, b) => b.count - a.count).slice(0, 10);
+
+  // Most expensive unowned
+  const priciest = tracks
+    .filter(t => !t.purchased && parseFloat(t.price) > 0)
+    .sort((a, b) => toGBP(parseFloat(b.price), b.currency) - toGBP(parseFloat(a.price), a.currency))
+    .slice(0, 5);
+
+  const body = document.getElementById('stats-body');
+  body.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">Total tracks</div></div>
+      <div class="stat-card"><div class="stat-num">${owned}</div><div class="stat-label">Owned</div></div>
+      <div class="stat-card"><div class="stat-num">${total - owned}</div><div class="stat-label">Unowned</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtDuration(totalDuration)}</div><div class="stat-label">Total duration</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtGBP(totalValue)}</div><div class="stat-label">Unowned value</div></div>
+      <div class="stat-card"><div class="stat-num">${state.playlists.length}</div><div class="stat-label">Playlists</div></div>
+    </div>
+    <div class="stats-cols">
+      <div>
+        <h4 class="stats-section-title">Top Genres</h4>
+        ${topGenres.length ? topGenres.map(([g, n]) => `
+          <div class="stats-bar-row">
+            <span class="stats-bar-label">${g}</span>
+            <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${Math.round((n/topGenres[0][1])*100)}%"></div></div>
+            <span class="stats-bar-count">${n}</span>
+          </div>`).join('') : '<p class="stats-empty">No genre tags yet.</p>'}
+      </div>
+      <div>
+        <h4 class="stats-section-title">Biggest Playlists</h4>
+        ${playlistStats.length ? playlistStats.map(p => `
+          <div class="stats-bar-row">
+            <span class="stats-bar-label">${p.name}</span>
+            <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${Math.round((p.count/(playlistStats[0].count||1))*100)}%"></div></div>
+            <span class="stats-bar-count">${p.count}</span>
+          </div>`).join('') : '<p class="stats-empty">No playlists yet.</p>'}
+      </div>
+    </div>
+    ${priciest.length ? `
+    <h4 class="stats-section-title" style="margin-top:16px">Most Expensive Unowned</h4>
+    <div class="stats-priciest">
+      ${priciest.map(t => `
+        <div class="stats-price-row">
+          ${t.artwork ? `<img class="stats-art" src="${t.artwork}" alt="">` : '<span class="stats-art-ph"></span>'}
+          <div class="stats-price-meta">
+            <span class="stats-price-title">${t.title}</span>
+            <span class="stats-price-artist">${t.artist}</span>
+          </div>
+          <span class="stats-price-val">${fmtGBP(toGBP(parseFloat(t.price), t.currency))}</span>
+        </div>`).join('')}
+    </div>` : ''}
+  `;
+  document.getElementById('stats-modal').classList.remove('hidden');
+}
+
 function exportData() {
   api.get('/api/data').then(data => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2842,6 +2915,7 @@ function bindEvents() {
   // Settings
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
   document.getElementById('fetch-cookie-btn').addEventListener('click', fetchCookieFromExtension);
+  document.getElementById('stats-btn').addEventListener('click', openStats);
   document.getElementById('export-data-btn').addEventListener('click', exportData);
   document.getElementById('import-data-input').addEventListener('change', e => { importData(e.target.files[0]); e.target.value = ''; });
 
