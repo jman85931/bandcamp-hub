@@ -89,6 +89,15 @@
           <div id="playlist-title-row">
             <h2 id="playlist-title">Select a playlist</h2>
             <div id="playlist-actions" class="hidden">
+              <select id="sort-select" class="btn-sm sort-select" title="Sort by">
+                <option value="default">↕ Default</option>
+                <option value="artist">A→Z Artist</option>
+                <option value="album">A→Z Album</option>
+                <option value="price-asc">Price ↑</option>
+                <option value="price-desc">Price ↓</option>
+                <option value="duration">Duration</option>
+                <option value="release">Release Date</option>
+              </select>
               <button class="btn-sm" id="push-all-cart-btn">Push All to Cart</button>
               <button class="btn-sm hidden" id="push-selected-cart-btn">Push Selected to Cart</button>
               <button class="btn-sm" id="refresh-all-btn">↻ Refresh All</button>

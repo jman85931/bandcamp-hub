@@ -1000,6 +1000,7 @@ html, body {
   transition: color 0.15s;
 }
 .btn-sm:hover { color: var(--text); }
+select.sort-select { cursor: pointer; appearance: auto; }
 
 .btn-danger {
   background: transparent;

@@ -22,7 +22,8 @@ let ui = {
   pendingPickerItems: [],
   cartPulledItems: [],
   playlistSearchQuery: '',
-  detailPlaylistSearch: ''
+  detailPlaylistSearch: '',
+  sortBy: 'default'  // 'default' | 'artist' | 'album' | 'price-asc' | 'price-desc' | 'duration' | 'release'
 };
 
 let genreDropdownEl = null;
@@ -749,6 +750,20 @@ function clearGlobalSearch() {
   renderContent();
 }
 
+function sortTrackIds(ids) {
+  if (ui.sortBy === 'default') return ids;
+  const tracks = ids.map(id => state.tracks[id]).filter(Boolean);
+  const cmp = {
+    artist:      (a, b) => (a.artist ?? '').localeCompare(b.artist ?? ''),
+    album:       (a, b) => (a.albumTitle ?? '').localeCompare(b.albumTitle ?? ''),
+    'price-asc': (a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0),
+    'price-desc':(a, b) => (parseFloat(b.price) || 0) - (parseFloat(a.price) || 0),
+    duration:    (a, b) => (a.duration || 0) - (b.duration || 0),
+    release:     (a, b) => (a.releaseDate ?? '').localeCompare(b.releaseDate ?? '')
+  }[ui.sortBy];
+  return [...tracks].sort(cmp).map(t => t.id);
+}
+
 function renderContent() {
   const pl = getPlaylist(ui.activePlaylistId);
   const titleEl   = document.getElementById('playlist-title');
@@ -772,7 +787,8 @@ function renderContent() {
   titleEl.textContent = pl.name;
   actionsEl.classList.remove('hidden');
 
-  const ids = pl.trackIds.filter(id => state.tracks[id]);
+  const rawIds = pl.trackIds.filter(id => state.tracks[id]);
+  const ids = sortTrackIds(rawIds);
   const hasItems = ids.length > 0;
   emptyEl.classList.toggle('hidden', hasItems);
   colHdr.classList.toggle('hidden', !hasItems);
@@ -788,7 +804,7 @@ function renderContent() {
   }
 
   updateBulkActionsVisibility();
-  renderPlaylistStats(ids);
+  renderPlaylistStats(rawIds);
   normaliseGenrePillWidths();
 }
 
@@ -2625,6 +2641,12 @@ function bindEvents() {
   // Sidebar
   document.getElementById('new-playlist-btn').addEventListener('click', () => createPlaylist());
   document.getElementById('new-folder-btn').addEventListener('click', () => createFolder());
+  // Sort
+  document.getElementById('sort-select').addEventListener('change', e => {
+    ui.sortBy = e.target.value;
+    renderContent();
+  });
+
   // Global search
   const globalSearchEl = document.getElementById('global-search');
   globalSearchEl.addEventListener('input', e => handleGlobalSearch(e.target.value));
