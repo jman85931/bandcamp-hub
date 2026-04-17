@@ -69,16 +69,26 @@ let shuffleOrder = [];
 // ── API helpers ──────────────────────────────────────────────────────────
 const api = {
   async get(path) {
-    const r = await fetch(path);
-    if (!r.ok) throw new Error(await r.text());
+    let r;
+    try { r = await fetch(path); }
+    catch { throw new Error('Cannot reach the Hub server — is it still running?'); }
+    if (!r.ok) {
+      const text = await r.text();
+      let msg = text;
+      try { msg = JSON.parse(text).error ?? text; } catch {}
+      throw new Error(msg);
+    }
     return r.json();
   },
   async post(path, body) {
-    const r = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    let r;
+    try {
+      r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    } catch { throw new Error('Cannot reach the Hub server — is it still running?'); }
     if (!r.ok) {
       const text = await r.text();
       let msg = text;
