@@ -55,8 +55,13 @@ let player = {
   trackId: null,
   playlistId: null,
   isPlaying: false,
-  isLoading: false
+  isLoading: false,
+  shuffle: false,
+  repeat: 'none'   // 'none' | 'all' | 'one'
 };
+
+// Shuffle order: regenerated each time shuffle is toggled on
+let shuffleOrder = [];
 
 // ── API helpers ──────────────────────────────────────────────────────────
 const api = {
@@ -1537,7 +1542,7 @@ function onTimeUpdate() {
   document.getElementById('progress-input').value = dur > 0 ? Math.round((cur / dur) * 1000) : 0;
 }
 
-function onTrackEnded() { setPlaying(false); playNext(); }
+function onTrackEnded() { setPlaying(false); playNext(true); }
 function onAudioError(e) {
   // Ignore spurious errors fired when src is changed/aborted mid-load
   if (player.isLoading) return;
@@ -1598,20 +1603,56 @@ function queueTrackIds() {
   return playlistTrackIds(player.playlistId);
 }
 
-function playNext() {
+function effectiveIds() {
   const ids = queueTrackIds();
+  if (!player.shuffle || ids.length <= 1) return ids;
+  // Keep shuffleOrder in sync with current ids
+  const valid = shuffleOrder.filter(id => ids.includes(id));
+  const missing = ids.filter(id => !valid.includes(id));
+  // Insert missing ids at random positions
+  missing.forEach(id => valid.splice(Math.floor(Math.random() * (valid.length + 1)), 0, id));
+  if (valid.length !== shuffleOrder.length || valid.some((id, i) => id !== shuffleOrder[i])) shuffleOrder = valid;
+  return shuffleOrder;
+}
+
+function playNext(fromEnded = false) {
+  if (fromEnded && player.repeat === 'one') { audioEl.currentTime = 0; audioEl.play().catch(() => {}); return; }
+  const ids = effectiveIds();
   if (!ids.length) return;
   const idx = ids.indexOf(player.trackId);
+  const isLast = idx === ids.length - 1;
+  if (fromEnded && isLast && player.repeat === 'none') { setPlaying(false); return; }
   const next = ids[(idx + 1) % ids.length];
-  if (next !== player.trackId) playTrack(next, player.playlistId);
+  playTrack(next, player.playlistId);
 }
 
 function playPrev() {
-  const ids = queueTrackIds();
+  if (audioEl.currentTime > 3) { audioEl.currentTime = 0; return; }
+  const ids = effectiveIds();
   if (!ids.length) return;
   const idx = ids.indexOf(player.trackId);
   const prev = ids[(idx - 1 + ids.length) % ids.length];
   playTrack(prev, player.playlistId);
+}
+
+function toggleShuffle() {
+  player.shuffle = !player.shuffle;
+  if (player.shuffle) {
+    // Build a fresh shuffle order, current track first
+    const ids = queueTrackIds();
+    shuffleOrder = [player.trackId, ...ids.filter(id => id !== player.trackId).sort(() => Math.random() - 0.5)];
+  }
+  document.getElementById('shuffle-btn').classList.toggle('active', player.shuffle);
+}
+
+function toggleRepeat() {
+  const next = { none: 'all', all: 'one', one: 'none' };
+  player.repeat = next[player.repeat];
+  const btn = document.getElementById('repeat-btn');
+  btn.classList.toggle('active', player.repeat !== 'none');
+  btn.title = { none: 'Repeat: Off', all: 'Repeat: All', one: 'Repeat: One' }[player.repeat];
+  const icon = btn.querySelector('.repeat-one-indicator');
+  if (icon) icon.classList.toggle('hidden', player.repeat !== 'one');
 }
 
 function togglePlayPause() {
@@ -2540,11 +2581,10 @@ function bindEvents() {
   document.getElementById('queue-btn').addEventListener('click', toggleQueuePanel);
   document.getElementById('queue-close-btn').addEventListener('click', toggleQueuePanel);
   document.getElementById('play-btn').addEventListener('click', togglePlayPause);
-  document.getElementById('next-btn').addEventListener('click', playNext);
-  document.getElementById('prev-btn').addEventListener('click', () => {
-    if (audioEl.currentTime > 3) { audioEl.currentTime = 0; return; }
-    playPrev();
-  });
+  document.getElementById('next-btn').addEventListener('click', () => playNext(false));
+  document.getElementById('prev-btn').addEventListener('click', playPrev);
+  document.getElementById('shuffle-btn').addEventListener('click', toggleShuffle);
+  document.getElementById('repeat-btn').addEventListener('click', toggleRepeat);
   document.getElementById('progress-input').addEventListener('input', e => {
     const dur = audioEl.duration;
     if (!dur) return;

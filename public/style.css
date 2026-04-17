@@ -823,6 +823,23 @@ html, body {
   flex-shrink: 0;
 }
 .ctrl-btn:hover { color: var(--text); background: var(--bg3); }
+.ctrl-btn.active { color: var(--accent); }
+.ctrl-btn.active:hover { color: var(--accent); }
+
+.player-aux-btn { opacity: 0.55; }
+.player-aux-btn:hover, .player-aux-btn.active { opacity: 1; }
+
+.repeat-one-indicator {
+  position: absolute;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  bottom: 2px;
+  right: 2px;
+}
+.ctrl-btn { position: relative; }
+
 .ctrl-play {
   width: 36px;
   height: 36px;
