@@ -195,6 +195,14 @@ html, body {
   flex-shrink: 0;
 }
 
+#smart-playlist-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+
 #playlist-list {
   list-style: none;
   flex: 1;
@@ -266,7 +274,6 @@ html, body {
 .btn-new-playlist:hover { color: var(--text2); border-color: var(--text3); }
 .btn-new-smart { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); opacity: 0.8; }
 .btn-new-smart:hover { opacity: 1; border-color: var(--accent); }
-.smart-playlist-item { padding-top: 9px !important; padding-bottom: 9px !important; }
 .smart-playlist-item .playlist-icon { color: var(--accent); }
 
 /* Smart criteria bar */
