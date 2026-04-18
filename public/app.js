@@ -12,7 +12,7 @@ let state = {
 
 let ui = {
   activePlaylistId: null,
-  activeLibView: null,  // 'purchased' | 'cart' | 'wishlist' | null
+  activeLibView: null,  // 'library' | 'purchased' | 'cart' | 'wishlist' | null
   selectedTrackId: null,
   selectedTrackIds: new Set(),  // checkboxes (bulk operations)
   selectedCartIds:  new Set(),  // cart item selection
@@ -258,12 +258,28 @@ function groupTracksByAlbum(trackIds) {
   });
 }
 
+function getGlobalLibraryTrackIds() {
+  const ids = [];
+  const seen = new Set();
+  for (const pl of state.playlists) {
+    if (pl.type === 'smart') continue;
+    for (const id of pl.trackIds ?? []) {
+      if (!state.tracks[id] || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
 // ── Render: Library counts ───────────────────────────────────────────────
 function renderLibraryCounts() {
+  const libraryCount   = getGlobalLibraryTrackIds().length;
   const purchasedCount = Object.values(state.tracks).filter(t => t.purchased).length;
   const cartCount      = state.cartItems.length;
   const wishlistCount  = state.wishlistItems.length;
 
+  setLibCount('lib-library-count',   libraryCount);
   setLibCount('lib-purchased-count', purchasedCount);
   setLibCount('lib-cart-count',      cartCount);
   setLibCount('lib-wishlist-count',  wishlistCount);
@@ -664,7 +680,8 @@ function selectLibView(view) {
   ui.selectedTrackIds.clear();
   ui.selectedCartIds.clear();
   renderSidebar();
-  renderLibContent(view);
+  if (view === 'library') renderContent();
+  else renderLibContent(view);
   renderDetailPanel();
 }
 
@@ -851,6 +868,45 @@ function sortTrackIds(ids) {
 }
 
 function renderContent() {
+  if (ui.activeLibView === 'library') {
+    const titleEl   = document.getElementById('playlist-title');
+    const actionsEl = document.getElementById('playlist-actions');
+    const emptyEl   = document.getElementById('track-list-empty');
+    const listEl    = document.getElementById('track-list');
+    const colHdr    = document.getElementById('track-col-header');
+    const rawIds    = getGlobalLibraryTrackIds();
+    const ids       = sortTrackIds(filterTrackIds(rawIds));
+    const hasItems  = ids.length > 0;
+    const hasFilters = activeFilters.genre !== '' || activeFilters.purchased !== 'all' || activeFilters.price !== 'all';
+
+    document.getElementById('add-track-bar').classList.add('hidden');
+    document.getElementById('lib-pull-actions').classList.add('hidden');
+    document.getElementById('smart-criteria-bar').classList.add('hidden');
+    titleEl.textContent = 'Global Library';
+    actionsEl.classList.remove('hidden');
+
+    if (!hasItems) {
+      emptyEl.innerHTML = hasFilters
+        ? `<p class="hint">No tracks match the active filters.</p>`
+        : `<p>No tracks in playlists yet.</p><p class="hint">Add music to a playlist to see it here.</p>`;
+    }
+    emptyEl.classList.toggle('hidden', hasItems);
+    colHdr.classList.toggle('hidden', !hasItems);
+    listEl.innerHTML = '';
+
+    const rowPlaylistId = '__global__';
+    const groups = groupTracksByAlbum(ids);
+    for (const group of groups) {
+      if (group.type === 'track') listEl.appendChild(buildTrackRow(group.trackId, rowPlaylistId));
+      else listEl.appendChild(buildAlbumGroup(group, rowPlaylistId));
+    }
+
+    updateBulkActionsVisibility();
+    renderPlaylistStats(rawIds);
+    normaliseGenrePillWidths();
+    return;
+  }
+
   const pl = getPlaylist(ui.activePlaylistId);
   const titleEl   = document.getElementById('playlist-title');
   const actionsEl = document.getElementById('playlist-actions');
@@ -1235,7 +1291,11 @@ function renderPlaylistStats(ids) {
 function updateSelectedStats(ids) {
   const selEl = document.getElementById('stat-selected-price');
   if (!selEl) return;
-  const allIds = ids ?? getPlaylist(ui.activePlaylistId)?.trackIds ?? [];
+  const allIds = ids ?? (
+    ui.activeLibView === 'library'
+      ? getGlobalLibraryTrackIds()
+      : (ui.activePlaylistId ? playlistTrackIds(ui.activePlaylistId) : [])
+  );
   if (!ui.selectedTrackIds.size) { selEl.classList.add('hidden'); return; }
 
   // Mirror calcPlaylistPriceGBP but only for selected tracks/albums
@@ -1265,6 +1325,7 @@ function buildTrackRow(trackId, playlistId) {
   const t = state.tracks[trackId];
   const isPlaying = player.trackId === trackId;
   const isChecked = ui.selectedTrackIds.has(trackId);
+  const canRemoveFromPlaylist = !!playlistId && playlistId !== '__global__';
 
   const isUnstreamable = t.streamable === false;
 
@@ -1319,7 +1380,7 @@ function buildTrackRow(trackId, playlistId) {
     </button>
     <div class="col-actions">
       <button class="track-menu-btn" title="More options">⋯</button>
-      ${playlistId ? `<button class="track-remove-btn" title="Remove from playlist">✕</button>` : ''}
+      ${canRemoveFromPlaylist ? `<button class="track-remove-btn" title="Remove from playlist">✕</button>` : ''}
     </div>`;
 
   // Checkbox: toggle selection, stop row click propagation
@@ -1374,6 +1435,7 @@ function buildTrackRow(trackId, playlistId) {
 function buildAlbumGroup(group, playlistId) {
   const key = group.albumUrl;
   const collapsed = ui.collapsedAlbums.has(key);
+  const canRemoveFromPlaylist = !!playlistId && playlistId !== '__global__';
 
   const li = document.createElement('li');
   li.className = 'album-group' + (collapsed ? ' collapsed' : '');
@@ -1406,7 +1468,7 @@ function buildAlbumGroup(group, playlistId) {
       ${albumPriceStr ? `<span class="album-group-price">${esc(albumPriceStr)}</span>` : ''}
       <button class="album-group-play-btn">▶ Play</button>
       <div class="album-group-actions">
-        ${playlistId ? `<button class="track-remove-btn album-remove-btn" title="Remove album from playlist">✕</button>` : ''}
+        ${canRemoveFromPlaylist ? `<button class="track-remove-btn album-remove-btn" title="Remove album from playlist">✕</button>` : ''}
       </div>
     </div>
     <ul class="album-group-tracks"></ul>`;
@@ -1828,6 +1890,7 @@ async function playTrack(trackId, playlistId) {
 
 function queueTrackIds() {
   if (player.playlistId === '__lib__') return state.libQueue.map(t => t.id).filter(Boolean);
+  if (player.playlistId === '__global__') return getGlobalLibraryTrackIds();
   return playlistTrackIds(player.playlistId);
 }
 
@@ -2624,6 +2687,10 @@ function pushToCart(trackId) {
 }
 
 function pushPlaylistToCart(playlistId) {
+  if (playlistId === '__global__') {
+    pushTracksViaExtension(getGlobalLibraryTrackIds());
+    return;
+  }
   const pl = getPlaylist(playlistId);
   if (!pl) return;
   pushTracksViaExtension(pl.trackIds);
@@ -2744,9 +2811,9 @@ function updateBulkActionsVisibility() {
 
 // ── Refresh all tracks ────────────────────────────────────────────────────
 async function refreshAllTracks() {
-  const pl = getPlaylist(ui.activePlaylistId);
-  if (!pl) return;
-  const ids = pl.trackIds.filter(id => state.tracks[id]);
+  const ids = ui.activeLibView === 'library'
+    ? getGlobalLibraryTrackIds()
+    : (getPlaylist(ui.activePlaylistId)?.trackIds ?? []).filter(id => state.tracks[id]);
   if (!ids.length) return;
 
   const btn = document.getElementById('refresh-all-btn');
@@ -3111,8 +3178,8 @@ function bindEvents() {
   document.getElementById('playlist-title').addEventListener('click', () => {
     if (ui.activePlaylistId) startTitleRename(ui.activePlaylistId);
   });
-  document.getElementById('cart-btn').addEventListener('click', () => {
-    selectLibView('cart');
+  document.getElementById('bandcamp-btn').addEventListener('click', () => {
+    window.open('https://bandcamp.com', '_blank');
   });
 
   // Library items
