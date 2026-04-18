@@ -17,13 +17,35 @@ const PORT = 3000;
 const DEFAULT_DATA = {
   playlists: [],
   tracks: {},
-  settings: { bandcampCookie: '', fanUsername: '' }
+  settings: { bandcampCookie: '', fanUsername: '', fanId: '' },
+  folders: [],
+  sidebarOrder: [],
+  cartItems: [],
+  wishlistItems: [],
+  libraryTrackIds: []
 };
+
+function normalizeData(data = {}) {
+  return {
+    playlists: Array.isArray(data.playlists) ? data.playlists : [],
+    tracks: data.tracks && typeof data.tracks === 'object' ? data.tracks : {},
+    settings: {
+      bandcampCookie: data.settings?.bandcampCookie ?? '',
+      fanUsername: data.settings?.fanUsername ?? '',
+      fanId: data.settings?.fanId ?? ''
+    },
+    folders: Array.isArray(data.folders) ? data.folders : [],
+    sidebarOrder: Array.isArray(data.sidebarOrder) ? data.sidebarOrder : [],
+    cartItems: Array.isArray(data.cartItems) ? data.cartItems : [],
+    wishlistItems: Array.isArray(data.wishlistItems) ? data.wishlistItems : [],
+    libraryTrackIds: Array.isArray(data.libraryTrackIds) ? data.libraryTrackIds.filter(Boolean) : []
+  };
+}
 
 function readData() {
   if (!existsSync(DATA_FILE)) return structuredClone(DEFAULT_DATA);
   try {
-    return JSON.parse(readFileSync(DATA_FILE, 'utf-8'));
+    return normalizeData(JSON.parse(readFileSync(DATA_FILE, 'utf-8')));
   } catch (err) {
     console.error('[data] Failed to parse data.json, starting fresh:', err.message);
     return structuredClone(DEFAULT_DATA);
@@ -32,7 +54,7 @@ function readData() {
 
 function writeData(data) {
   const tmp = DATA_FILE + '.tmp';
-  writeFileSync(tmp, JSON.stringify(data, null, 2));
+  writeFileSync(tmp, JSON.stringify(normalizeData(data), null, 2));
   renameSync(tmp, DATA_FILE);
 }
 
@@ -44,6 +66,64 @@ function applySettings(data) {
 
 const withTimeout = (p, ms = 20000) =>
   Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Request timed out — Bandcamp may be slow, please try again')), ms))]);
+
+function normalizeBandcampUrl(url) {
+  return url ? String(url).split('?')[0].replace(/\/$/, '') : null;
+}
+
+function getLookupKey(item) {
+  return normalizeBandcampUrl(item?.url);
+}
+
+function getGlobalLibraryTrackIds(data) {
+  const ids = [];
+  const seen = new Set();
+
+  for (const id of data.libraryTrackIds ?? []) {
+    if (data.tracks[id] && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+
+  for (const pl of data.playlists ?? []) {
+    if (pl?.type === 'smart') continue;
+    for (const id of pl.trackIds ?? []) {
+      if (data.tracks[id] && !seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+
+  return ids;
+}
+
+function getTrackLocations(data, trackId) {
+  const locations = [];
+  if ((data.libraryTrackIds ?? []).includes(trackId)) locations.push('Global Library');
+  for (const pl of data.playlists ?? []) {
+    if (pl?.type === 'smart') continue;
+    if (pl.trackIds?.includes(trackId)) locations.push(pl.name);
+  }
+  return locations;
+}
+
+function buildDuplicateInfo(data, url) {
+  const norm = normalizeBandcampUrl(url);
+  if (!norm) return [];
+  return Object.values(data.tracks)
+    .filter(track => normalizeBandcampUrl(track.url) === norm)
+    .map(track => ({
+      url: track.url ?? norm,
+      title: track.title ?? 'Unknown Track',
+      locations: getTrackLocations(data, track.id)
+    }));
+}
+
+function getPropValue(obj, name) {
+  return obj?.additionalProperty?.find(p => p.name === name)?.value ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Track formatting helpers
@@ -101,20 +181,31 @@ function formatCurrency(track) {
 
 function extractBcIds(track) {
   try {
-    if (track.raw?.basic) {
-      const raw = JSON.parse(track.raw.basic);
+    const basic = typeof track.raw?.basic === 'string'
+      ? JSON.parse(track.raw.basic)
+      : track.raw?.basic;
+    if (basic) {
+      const albumRelease = basic.albumRelease ?? basic.inAlbum?.albumRelease ?? [];
+      const albumDigital = albumRelease.find(r =>
+        getPropValue(r, 'item_type') === 'a' && getPropValue(r, 'type_name') === 'Digital'
+      );
+      const albumIdFromRelease = getPropValue(albumDigital, 'item_id');
       return {
-        bcTrackId: raw.id ?? track.id ?? null,
-        bcAlbumId: raw.current?.album_id ?? raw.album?.id ?? null,
-        bcBandId:  raw.current?.band_id ?? raw.band_id ?? null
+        bcTrackId: basic.id ?? track.id ?? null,
+        bcAlbumId: albumIdFromRelease ?? basic.inAlbum?.id ?? track.album?.id ?? null,
+        bcBandId:  basic.current?.band_id ?? basic.band_id ?? track.bandId ?? null
       };
     }
   } catch { /* ignore */ }
-  return { bcTrackId: track.id ?? null, bcAlbumId: null, bcBandId: null };
+  return { bcTrackId: track.id ?? null, bcAlbumId: track.album?.id ?? null, bcBandId: track.bandId ?? null };
 }
 
 function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
-  const { bcTrackId, bcAlbumId, bcBandId } = extractBcIds(track);
+  const trackIds = [extractBcIds(trackPageInfo ?? {}), extractBcIds(track ?? {})];
+  const albumIds = extractBcIds(albumInfo ?? {});
+  const bcTrackId = trackIds.find(x => x.bcTrackId)?.bcTrackId ?? track?.id ?? null;
+  const bcAlbumId = trackIds.find(x => x.bcAlbumId)?.bcAlbumId ?? albumIds.bcAlbumId ?? albumInfo?.id ?? null;
+  const bcBandId  = trackIds.find(x => x.bcBandId)?.bcBandId ?? albumIds.bcBandId ?? albumInfo?.bandId ?? null;
 
   // Tags: merge genre + keywords from album (deduped, titlecased)
   const keywords = albumInfo?.keywords ?? [];
@@ -153,9 +244,29 @@ function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
     bcBandId,
     streamable,
     purchased: false,
+    purchaseDate: null,
     notes: '',
     addedAt: new Date().toISOString()
   };
+}
+
+async function lookupBandcampUrl(url, data = readData()) {
+  applySettings(data);
+
+  if (url.includes('/track/')) {
+    const track = await withTimeout(bcfetch.track.getInfo({ trackUrl: url, includeRawData: true }));
+    const albumUrl = track.raw?.basic?.inAlbum?.['@id'] ?? track.album?.url ?? null;
+    if (albumUrl) {
+      const album = await withTimeout(bcfetch.album.getInfo({ albumUrl, includeRawData: true }));
+      const t = album.tracks?.find(x => x.name === track.name) ?? track;
+      return { type: 'track', items: [buildTrackRecord(t, album, track)] };
+    }
+    return { type: 'track', items: [buildTrackRecord(track)] };
+  }
+
+  const album = await withTimeout(bcfetch.album.getInfo({ albumUrl: url, includeRawData: true }));
+  const items = (album.tracks ?? []).map(t => buildTrackRecord(t, album));
+  return { type: 'album', albumName: album.name, albumArtwork: album.imageUrl, items };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,27 +297,93 @@ app.post('/api/track/lookup', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
 
-  const data = readData();
-  applySettings(data);
-
   try {
-    if (url.includes('/track/')) {
-      const track = await withTimeout(bcfetch.track.getInfo({ trackUrl: url, includeRawData: true }));
-      const albumUrl = track.raw?.basic?.inAlbum?.['@id'] ?? track.album?.url ?? null;
-      if (albumUrl) {
-        const album = await withTimeout(bcfetch.album.getInfo({ albumUrl, includeRawData: true }));
-        const t = album.tracks?.find(x => x.name === track.name) ?? track;
-        res.json({ type: 'track', items: [buildTrackRecord(t, album, track)] });
-      } else {
-        res.json({ type: 'track', items: [buildTrackRecord(track)] });
-      }
-    } else {
-      const album = await withTimeout(bcfetch.album.getInfo({ albumUrl: url, includeRawData: true }));
-      const items = (album.tracks ?? []).map(t => buildTrackRecord(t, album));
-      res.json({ type: 'album', albumName: album.name, albumArtwork: album.imageUrl, items });
-    }
+    res.json(await lookupBandcampUrl(url, readData()));
   } catch (err) {
     console.error('lookup error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/library/targets', (req, res) => {
+  const data = readData();
+  const playlists = data.playlists
+    .filter(pl => pl?.type !== 'smart')
+    .map(pl => ({ id: pl.id, name: pl.name ?? 'Untitled Playlist' }));
+
+  res.json({
+    playlists,
+    defaultTarget: { type: 'library' }
+  });
+});
+
+app.post('/api/library/add', async (req, res) => {
+  const { target, sourceUrl, selectedItemKeys } = req.body ?? {};
+  if (!sourceUrl) return res.status(400).json({ error: 'sourceUrl required' });
+  if (!Array.isArray(selectedItemKeys) || selectedItemKeys.length === 0) {
+    return res.status(400).json({ error: 'selectedItemKeys required' });
+  }
+  if (!target?.type || !['library', 'playlist'].includes(target.type)) {
+    return res.status(400).json({ error: 'valid target required' });
+  }
+
+  const data = readData();
+  const playlist = target.type === 'playlist'
+    ? data.playlists.find(pl => pl.id === target.playlistId && pl.type !== 'smart')
+    : null;
+  if (target.type === 'playlist' && !playlist) {
+    return res.status(404).json({ error: 'Playlist not found' });
+  }
+
+  try {
+    const lookup = await lookupBandcampUrl(sourceUrl, data);
+    const itemMap = new Map(
+      (lookup.items ?? [])
+        .map(item => [getLookupKey(item), item])
+        .filter(([key]) => !!key)
+    );
+
+    const selected = selectedItemKeys
+      .map(key => itemMap.get(normalizeBandcampUrl(key)))
+      .filter(Boolean);
+
+    if (!selected.length) {
+      return res.status(400).json({ error: 'No matching items selected' });
+    }
+
+    const duplicates = [];
+    const addedTrackIds = [];
+
+    for (const item of selected) {
+      const dupMatches = buildDuplicateInfo(data, item.url);
+      if (dupMatches.length) {
+        duplicates.push({
+          url: item.url,
+          title: item.title ?? 'Unknown Track',
+          locations: [...new Set(dupMatches.flatMap(match => match.locations).filter(Boolean))]
+        });
+      }
+
+      const trackId = item.id ?? uuidv4();
+      const track = { ...item, id: trackId, addedAt: item.addedAt ?? new Date().toISOString() };
+      data.tracks[trackId] = track;
+      addedTrackIds.push(trackId);
+
+      if (target.type === 'library') {
+        if (!data.libraryTrackIds.includes(trackId)) data.libraryTrackIds.push(trackId);
+      } else if (!playlist.trackIds.includes(trackId)) {
+        playlist.trackIds.push(trackId);
+      }
+    }
+
+    writeData(data);
+    res.json({
+      addedCount: addedTrackIds.length,
+      addedTrackIds,
+      duplicates
+    });
+  } catch (err) {
+    console.error('library add error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -336,6 +513,7 @@ function normalizeRawFanItem(raw, tracklists) {
     imageUrl: raw.item_art_url ?? null,
     price: price != null ? String(price) : null,
     currency: currency,
+    purchaseDate: raw.purchased ?? null,
     numTracks: tl?.tracks?.length ?? null,
     tracks: (tl?.tracks ?? []).map(t => ({
       type: 'track',
@@ -343,7 +521,8 @@ function normalizeRawFanItem(raw, tracklists) {
       name: t.title,
       artist: { name: raw.band_name },
       duration: t.duration ?? null,
-      imageUrl: raw.item_art_url ?? null
+      imageUrl: raw.item_art_url ?? null,
+      purchaseDate: raw.purchased ?? null
     }))
   };
 }
@@ -417,35 +596,84 @@ app.get('/api/collection/pull', async (req, res) => {
 
     const items = allItems.map(item => {
       if (item.type === 'track') {
-        const t = buildTrackRecord(item); t.purchased = true; return t;
+        const t = buildTrackRecord(item); t.purchased = true; t.purchaseDate = item.purchaseDate ?? null; return t;
       }
+      const tracks = (item.tracks ?? []).map(t => {
+        const r = buildTrackRecord(t, item);
+        r.purchased = true;
+        r.purchaseDate = item.purchaseDate ?? t.purchaseDate ?? null;
+        r.bcAlbumId = item.id ?? r.bcAlbumId ?? null;
+        return r;
+      });
       return {
-        id: null, type: 'album',
+        id: item.id ?? null, type: 'album',
         url: item.url, title: item.name,
         artist: item.artist?.name ?? 'Unknown',
         albumTitle: item.name, artwork: item.imageUrl ?? null,
         price: formatPrice(item), currency: formatCurrency(item),
+        purchaseDate: item.purchaseDate ?? null,
         numTracks: item.numTracks ?? null,
-        tracks: (item.tracks ?? []).map(t => { const r = buildTrackRecord(t, item); r.purchased = true; return r; })
+        tracks
       };
     });
 
     // Upsert into data — albums with no embedded tracks stored as single purchased entries
     let added = 0, updated = 0;
     for (const item of items) {
+      const normItemUrl = normalizeBandcampUrl(item.url);
       if (item.type === 'album' && item.tracks?.length) {
+        let matchedAny = false;
+        const albumMatches = Object.values(data.tracks).filter(e =>
+          normalizeBandcampUrl(e.albumUrl) === normItemUrl ||
+          normalizeBandcampUrl(e.url) === normItemUrl ||
+          (item.id != null && e.bcAlbumId === item.id)
+        );
+        for (const existing of albumMatches) {
+          existing.purchased = true;
+          existing.purchaseDate = item.purchaseDate ?? existing.purchaseDate ?? null;
+          if (item.id != null && existing.bcAlbumId == null) existing.bcAlbumId = item.id;
+          matchedAny = true;
+          updated++;
+        }
         for (const t of item.tracks) {
-          const existing = Object.values(data.tracks).find(e => e.url === t.url);
-          if (existing) { existing.purchased = true; updated++; }
+          const existing = Object.values(data.tracks).find(e =>
+            normalizeBandcampUrl(e.url) === normalizeBandcampUrl(t.url) ||
+            normalizeBandcampUrl(e.albumUrl) === normItemUrl ||
+            (item.id != null && e.bcAlbumId === item.id)
+          );
+          if (existing) {
+            existing.purchased = true;
+            existing.purchaseDate = item.purchaseDate ?? existing.purchaseDate ?? null;
+            if (item.id != null && existing.bcAlbumId == null) existing.bcAlbumId = item.id;
+            matchedAny = true;
+            updated++;
+          }
           else { data.tracks[t.id] = t; added++; }
         }
+        if (matchedAny) continue;
       } else {
         // Single track or album without tracklist — store as one entry
         const entry = item.type === 'album'
-          ? { ...buildTrackRecord({ name: item.title, artist: item.artist, imageUrl: item.artwork, url: item.url }), albumTitle: item.albumTitle, purchased: true }
+          ? {
+              ...buildTrackRecord({ name: item.title, artist: item.artist, imageUrl: item.artwork, url: item.url, id: item.id }),
+              albumTitle: item.albumTitle,
+              purchased: true,
+              purchaseDate: item.purchaseDate ?? null,
+              bcAlbumId: item.id ?? null
+            }
           : item;
-        const existing = Object.values(data.tracks).find(e => e.url === entry.url);
-        if (existing) { existing.purchased = true; updated++; }
+        const existing = Object.values(data.tracks).find(e =>
+          normalizeBandcampUrl(e.url) === normalizeBandcampUrl(entry.url) ||
+          normalizeBandcampUrl(e.albumUrl) === normalizeBandcampUrl(entry.url) ||
+          (entry.bcTrackId != null && e.bcTrackId === entry.bcTrackId) ||
+          (entry.bcAlbumId != null && e.bcAlbumId === entry.bcAlbumId)
+        );
+        if (existing) {
+          existing.purchased = true;
+          existing.purchaseDate = entry.purchaseDate ?? existing.purchaseDate ?? null;
+          if (entry.bcAlbumId != null && existing.bcAlbumId == null) existing.bcAlbumId = entry.bcAlbumId;
+          updated++;
+        }
         else if (entry.id) { data.tracks[entry.id] = entry; added++; }
       }
     }

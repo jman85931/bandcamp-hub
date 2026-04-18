@@ -7,6 +7,7 @@ let state = {
   sidebarOrder: [],
   cartItems: [],
   wishlistItems: [],
+  libraryTrackIds: [],
   libQueue: []   // runtime queue for playing wishlist/cart albums (not persisted)
 };
 
@@ -29,8 +30,19 @@ let ui = {
 let genreDropdownEl = null;
 let dragState = { type: null, id: null, sourceItem: null }; // type: 'playlist'|'folder'|'track'
 let globalSearchQuery = '';
+let globalSearchScope = 'library';
 let activeFilters = { genre: '', purchased: 'all', price: 'all' }; // purchased: 'all'|'owned'|'unowned'; price: 'all'|'free'|'paid'
 let fxRates = {}; // exchange rates relative to GBP (e.g. { EUR: 1.17, USD: 1.27 })
+
+const SORT_HEADER_CONFIG = {
+  title: ['title-asc', 'title-desc'],
+  duration: ['duration-desc', 'duration'],
+  artist: ['artist', 'artist-desc'],
+  album: ['album', 'album-desc'],
+  purchase: ['purchase', 'purchase-asc'],
+  genre: ['genre', 'genre-desc'],
+  price: ['price-desc', 'price-asc']
+};
 
 async function fetchExchangeRates() {
   try {
@@ -111,7 +123,8 @@ async function saveNow() {
       playlists: state.playlists, tracks: state.tracks,
       settings: state.settings, folders: state.folders,
       sidebarOrder: state.sidebarOrder,
-      cartItems: state.cartItems, wishlistItems: state.wishlistItems
+      cartItems: state.cartItems, wishlistItems: state.wishlistItems,
+      libraryTrackIds: state.libraryTrackIds
     });
   } catch (e) { toast('Save failed: ' + e.message, 'error'); }
 }
@@ -132,6 +145,7 @@ async function boot() {
       state.playlists.map(p => ({ type: 'playlist', id: p.id }));
     state.cartItems     = (data.cartItems     ?? []).filter(Boolean);
     state.wishlistItems = (data.wishlistItems ?? []).filter(Boolean);
+    state.libraryTrackIds = (data.libraryTrackIds ?? []).filter(id => data.tracks?.[id]);
     // Remove smart playlists from sidebarOrder — they live in their own section
     const smartIds = new Set(state.playlists.filter(p => p.type === 'smart').map(p => p.id));
     state.sidebarOrder = state.sidebarOrder.filter(o => !(o.type === 'playlist' && smartIds.has(o.id)));
@@ -140,6 +154,8 @@ async function boot() {
   await fetchExchangeRates();
   ensureBuiltInSmartPlaylists();
   bindEvents();
+  syncSortSelect();
+  updateSortHeaderUI();
   renderSidebar();
   if (state.playlists.length > 0) selectPlaylist(state.playlists[0].id);
   else renderContent();
@@ -155,7 +171,6 @@ function fmtDuration(sec) {
 
 function fmtPrice(track) {
   if (!track) return '';
-  if (track.purchased) return '✓ Owned';
   if (track.price == null || track.price === '') return '';
   const p = parseFloat(track.price);
   if (isNaN(p)) return '';
@@ -171,6 +186,74 @@ function fmtDate(str) {
   try {
     return new Date(str).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   } catch { return str; }
+}
+
+function fmtPurchasedCell(track, mode = 'status') {
+  if (!track?.purchased) return '';
+  if (mode === 'date') return fmtDate(track.purchaseDate) ?? 'Purchased';
+  return '✓ Purchased';
+}
+
+function sortArrow(sortBy) {
+  return {
+    'title-asc': '↑',
+    'title-desc': '↓',
+    artist: '↑',
+    'artist-desc': '↓',
+    album: '↑',
+    'album-desc': '↓',
+    purchase: '↓',
+    'purchase-asc': '↑',
+    'price-asc': '↑',
+    'price-desc': '↓',
+    duration: '↑',
+    'duration-desc': '↓',
+    genre: '↑',
+    'genre-desc': '↓'
+  }[sortBy] ?? '';
+}
+
+function isHeaderSortEnabled() {
+  if (globalSearchQuery) return globalSearchScope !== 'wishlist';
+  return !ui.activeLibView || ui.activeLibView === 'library' || ui.activeLibView === 'purchased';
+}
+
+function updateSortHeaderUI() {
+  const enabled = isHeaderSortEnabled();
+  document.querySelectorAll('#track-col-header .sort-header').forEach(btn => {
+    const key = btn.dataset.sortKey;
+    const active = enabled && SORT_HEADER_CONFIG[key]?.includes(ui.sortBy);
+    const label = btn.dataset.baseLabel ?? btn.textContent.trim();
+    const arrow = active ? sortArrow(ui.sortBy) : '';
+    btn.innerHTML = `<span class="sort-label">${esc(label)}${arrow ? `<span class="sort-arrow">${arrow}</span>` : ''}</span>`;
+    btn.classList.toggle('sortable', enabled);
+    btn.classList.toggle('active', active);
+    btn.disabled = !enabled;
+    btn.setAttribute('aria-sort', active ? (arrow === '↑' ? 'ascending' : 'descending') : 'none');
+  });
+}
+
+function syncSortSelect() {
+  const select = document.getElementById('sort-select');
+  if (select) select.value = ui.sortBy;
+}
+
+function renderCurrentTrackView() {
+  if (globalSearchQuery) {
+    handleGlobalSearch(document.getElementById('global-search').value);
+    return;
+  }
+  renderActiveView();
+}
+
+function toggleHeaderSort(sortKey) {
+  const options = SORT_HEADER_CONFIG[sortKey];
+  if (!options) return;
+  ui.sortBy = options.includes(ui.sortBy)
+    ? options[(options.indexOf(ui.sortBy) + 1) % options.length]
+    : options[0];
+  syncSortSelect();
+  renderCurrentTrackView();
 }
 
 function toast(msg, type = '') {
@@ -261,6 +344,13 @@ function groupTracksByAlbum(trackIds) {
 function getGlobalLibraryTrackIds() {
   const ids = [];
   const seen = new Set();
+
+  for (const id of state.libraryTrackIds) {
+    if (!state.tracks[id] || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+
   for (const pl of state.playlists) {
     if (pl.type === 'smart') continue;
     for (const id of pl.trackIds ?? []) {
@@ -270,6 +360,11 @@ function getGlobalLibraryTrackIds() {
     }
   }
   return ids;
+}
+
+function isTrackReferenced(trackId) {
+  if (state.libraryTrackIds.includes(trackId)) return true;
+  return state.playlists.some(p => p.trackIds?.includes(trackId));
 }
 
 // ── Render: Library counts ───────────────────────────────────────────────
@@ -669,6 +764,7 @@ function selectPlaylist(id) {
   ui.activePlaylistId = id;
   ui.activeLibView = null;
   ui.selectedTrackIds.clear();
+  syncSortSelect();
   renderSidebar();
   renderContent();
 }
@@ -679,6 +775,7 @@ function selectLibView(view) {
   ui.selectedTrackId = null;
   ui.selectedTrackIds.clear();
   ui.selectedCartIds.clear();
+  syncSortSelect();
   renderSidebar();
   if (view === 'library') renderContent();
   else renderLibContent(view);
@@ -709,7 +806,11 @@ function renderLibContent(view) {
   let items = [];
   if (view === 'purchased') {
     titleEl.textContent = 'Purchased';
-    items = Object.values(state.tracks).filter(t => t.purchased);
+    const purchasedIds = Object.values(state.tracks).filter(t => t.purchased).map(t => t.id);
+    items = (ui.sortBy === 'default'
+      ? purchasedIds.sort((a, b) => new Date(state.tracks[b]?.purchaseDate ?? 0) - new Date(state.tracks[a]?.purchaseDate ?? 0))
+      : sortTrackIds(purchasedIds)
+    ).map(id => state.tracks[id]).filter(Boolean);
     document.getElementById('pull-purchased-btn').classList.remove('hidden');
   } else if (view === 'cart') {
     titleEl.textContent = 'Cart';
@@ -726,6 +827,10 @@ function renderLibContent(view) {
     document.getElementById('wishlist-collapse-all-btn').classList.toggle('hidden', !hasWishlistAlbums);
     document.getElementById('wishlist-expand-all-btn').classList.toggle('hidden', !hasWishlistAlbums);
   }
+
+  const purchasedHdr = document.getElementById('tcol-purchased');
+  purchasedHdr.dataset.baseLabel = view === 'purchased' ? 'Purchase Date' : 'Purchased';
+  updateSortHeaderUI();
 
   listEl.innerHTML = '';
   if (!items.length) {
@@ -764,14 +869,31 @@ function renderLibContent(view) {
   }
 }
 
+function renderActiveView() {
+  if (ui.activeLibView && ui.activeLibView !== 'library') {
+    renderLibContent(ui.activeLibView);
+  } else {
+    renderContent();
+  }
+}
+
+function wishlistItemMatchesSearch(item, query) {
+  if (!item) return false;
+  const directHay = `${item.title ?? item.name ?? ''} ${item.artist ?? item.artist?.name ?? ''} ${item.albumTitle ?? ''}`.toLowerCase();
+  if (directHay.includes(query)) return true;
+  return (item.tracks ?? []).some(track => {
+    const hay = `${track.title ?? track.name ?? ''} ${track.artist ?? track.artist?.name ?? ''} ${track.albumTitle ?? item.albumTitle ?? ''}`.toLowerCase();
+    return hay.includes(query);
+  });
+}
+
 // ── Global search ─────────────────────────────────────────────────────────
 function handleGlobalSearch(query) {
   globalSearchQuery = query.trim().toLowerCase();
   document.getElementById('global-search-clear').classList.toggle('hidden', !globalSearchQuery);
 
   if (!globalSearchQuery) {
-    // Return to previous view
-    renderContent();
+    renderActiveView();
     return;
   }
 
@@ -783,38 +905,70 @@ function handleGlobalSearch(query) {
   const colHdr    = document.getElementById('track-col-header');
   const addBar    = document.getElementById('add-track-bar');
 
-  titleEl.textContent = `Search: "${query.trim()}"`;
+  const scopeLabel = {
+    library: 'Library',
+    purchased: 'Purchased',
+    wishlist: 'Wishlist'
+  }[globalSearchScope] ?? 'Library';
+
+  titleEl.textContent = `${scopeLabel} Search: "${query.trim()}"`;
   actionsEl.classList.add('hidden');
   libEl.classList.add('hidden');
   addBar.classList.add('hidden');
+  document.getElementById('tcol-purchased').dataset.baseLabel = globalSearchScope === 'purchased' ? 'Purchase Date' : 'Purchased';
+  updateSortHeaderUI();
   colHdr.classList.remove('hidden');
   listEl.innerHTML = '';
 
-  const results = Object.values(state.tracks).filter(t => {
-    const hay = `${t.title} ${t.artist} ${t.albumTitle ?? ''} ${(t.tags ?? []).join(' ')}`.toLowerCase();
-    return hay.includes(globalSearchQuery);
-  });
+  let hasResults = false;
 
-  if (!results.length) {
+  if (globalSearchScope === 'wishlist') {
+    const results = state.wishlistItems.filter(item => wishlistItemMatchesSearch(item, globalSearchQuery));
+    if (results.length) {
+      hasResults = true;
+      const groups = groupLibItems(results.filter(Boolean));
+      let trackNum = 0;
+      groups.forEach(group => {
+        if (group.type === 'album') {
+          listEl.appendChild(buildLibAlbumGroup(group, 'wishlist'));
+        } else {
+          trackNum++;
+          listEl.appendChild(buildLibTrackRow(group.item, trackNum, 'wishlist'));
+        }
+      });
+    }
+  } else {
+    const pool = globalSearchScope === 'purchased'
+      ? sortTrackIds(Object.values(state.tracks).filter(t => t.purchased).map(t => t.id)).map(id => state.tracks[id]).filter(Boolean)
+      : sortTrackIds(getGlobalLibraryTrackIds()).map(id => state.tracks[id]).filter(Boolean);
+    const results = pool.filter(t => {
+      const hay = `${t.title} ${t.artist} ${t.albumTitle ?? ''} ${(t.tags ?? []).join(' ')}`.toLowerCase();
+      return hay.includes(globalSearchQuery);
+    });
+    if (results.length) {
+      hasResults = true;
+      const groups = groupTracksByAlbum(results.map(t => t.id));
+      for (const group of groups) {
+        if (group.type === 'track') listEl.appendChild(buildTrackRow(group.trackId, null));
+        else listEl.appendChild(buildAlbumGroup(group, null));
+      }
+    }
+  }
+
+  if (!hasResults) {
     emptyEl.classList.remove('hidden');
     emptyEl.textContent = 'No tracks found.';
     return;
   }
   emptyEl.classList.add('hidden');
   emptyEl.textContent = 'No tracks in this playlist yet.';
-
-  // Show results as plain track rows (no playlist context)
-  results.forEach(t => {
-    const row = buildTrackRow(t.id, null);
-    listEl.appendChild(row);
-  });
 }
 
 function clearGlobalSearch() {
   globalSearchQuery = '';
   document.getElementById('global-search').value = '';
   document.getElementById('global-search-clear').classList.add('hidden');
-  renderContent();
+  renderActiveView();
 }
 
 function populateGenreFilter() {
@@ -835,6 +989,12 @@ function updateFilterBtn() {
   const active = activeFilters.genre !== '' || activeFilters.purchased !== 'all' || activeFilters.price !== 'all';
   document.getElementById('filter-btn').classList.toggle('active-filter', active);
   document.getElementById('filter-btn').textContent = active ? '⊟ Filter ●' : '⊟ Filter';
+  const hideBtn = document.getElementById('hide-purchased-btn');
+  if (hideBtn) {
+    const hiding = activeFilters.purchased === 'unowned';
+    hideBtn.classList.toggle('active-filter', hiding);
+    hideBtn.textContent = hiding ? 'Show Purchased' : 'Hide Purchased';
+  }
 }
 
 function filterTrackIds(ids) {
@@ -856,12 +1016,22 @@ function filterTrackIds(ids) {
 function sortTrackIds(ids) {
   if (ui.sortBy === 'default') return ids;
   const tracks = ids.map(id => state.tracks[id]).filter(Boolean);
+  const getGenre = t => (t.genre ?? t.tags?.[0] ?? '').toLowerCase();
   const cmp = {
+    'title-asc': (a, b) => (a.title ?? '').localeCompare(b.title ?? ''),
+    'title-desc': (a, b) => (b.title ?? '').localeCompare(a.title ?? ''),
     artist:      (a, b) => (a.artist ?? '').localeCompare(b.artist ?? ''),
+    'artist-desc': (a, b) => (b.artist ?? '').localeCompare(a.artist ?? ''),
     album:       (a, b) => (a.albumTitle ?? '').localeCompare(b.albumTitle ?? ''),
+    'album-desc': (a, b) => (b.albumTitle ?? '').localeCompare(a.albumTitle ?? ''),
+    purchase:    (a, b) => new Date(b.purchaseDate ?? 0) - new Date(a.purchaseDate ?? 0),
+    'purchase-asc': (a, b) => new Date(a.purchaseDate ?? 0) - new Date(b.purchaseDate ?? 0),
     'price-asc': (a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0),
     'price-desc':(a, b) => (parseFloat(b.price) || 0) - (parseFloat(a.price) || 0),
     duration:    (a, b) => (a.duration || 0) - (b.duration || 0),
+    'duration-desc': (a, b) => (b.duration || 0) - (a.duration || 0),
+    genre:       (a, b) => getGenre(a).localeCompare(getGenre(b)),
+    'genre-desc':(a, b) => getGenre(b).localeCompare(getGenre(a)),
     release:     (a, b) => (a.releaseDate ?? '').localeCompare(b.releaseDate ?? '')
   }[ui.sortBy];
   return [...tracks].sort(cmp).map(t => t.id);
@@ -882,8 +1052,10 @@ function renderContent() {
     document.getElementById('add-track-bar').classList.add('hidden');
     document.getElementById('lib-pull-actions').classList.add('hidden');
     document.getElementById('smart-criteria-bar').classList.add('hidden');
+    document.getElementById('tcol-purchased').dataset.baseLabel = 'Purchased';
     titleEl.textContent = 'Global Library';
     actionsEl.classList.remove('hidden');
+    updateSortHeaderUI();
 
     if (!hasItems) {
       emptyEl.innerHTML = hasFilters
@@ -913,6 +1085,8 @@ function renderContent() {
   const emptyEl   = document.getElementById('track-list-empty');
   const listEl    = document.getElementById('track-list');
   const colHdr    = document.getElementById('track-col-header');
+  document.getElementById('tcol-purchased').dataset.baseLabel = 'Purchased';
+  updateSortHeaderUI();
 
   if (!pl) {
     titleEl.textContent = '';
@@ -933,8 +1107,10 @@ function renderContent() {
   const isSmart = pl.type === 'smart';
   document.getElementById('add-track-bar').classList.toggle('hidden', isSmart);
   document.getElementById('lib-pull-actions').classList.add('hidden');
+  document.getElementById('tcol-purchased').dataset.baseLabel = 'Purchased';
   titleEl.textContent = pl.name;
   actionsEl.classList.remove('hidden');
+  updateSortHeaderUI();
 
   // Smart playlist criteria banner
   const criteriaBar = document.getElementById('smart-criteria-bar');
@@ -1046,6 +1222,7 @@ function buildLibTrackRow(item, num, view) {
     <div class="col-time">${fmtDuration(item.duration)}</div>
     <div class="col-artist">${esc(item.artist ?? '')}</div>
     <div class="col-album">${esc(item.albumTitle ?? '')}</div>
+    <div class="col-purchased"></div>
     <div class="col-genre"></div>
     <div class="col-price">${item.price ? fmtPrice(item) : ''}</div>
     <div></div>
@@ -1281,7 +1458,7 @@ function renderPlaylistStats(ids) {
     `${trackCount} track${trackCount !== 1 ? 's' : ''}`;
   document.getElementById('stat-duration').textContent = fmtDuration(totalDur);
   document.getElementById('stat-owned').textContent =
-    ownedCount > 0 ? `${ownedCount} owned` : '0 owned';
+    ownedCount > 0 ? `${ownedCount} purchased` : '0 purchased';
   document.getElementById('stat-total-price').textContent =
     totalGBP > 0 ? `Total: ${fmtGBP(totalGBP)}` : 'Total: —';
 
@@ -1326,6 +1503,7 @@ function buildTrackRow(trackId, playlistId) {
   const isPlaying = player.trackId === trackId;
   const isChecked = ui.selectedTrackIds.has(trackId);
   const canRemoveFromPlaylist = !!playlistId && playlistId !== '__global__';
+  const purchasedMode = (ui.activeLibView === 'purchased' || (globalSearchQuery && globalSearchScope === 'purchased')) ? 'date' : 'status';
 
   const isUnstreamable = t.streamable === false;
 
@@ -1333,6 +1511,7 @@ function buildTrackRow(trackId, playlistId) {
   li.className = 'track-item track-grid' +
     (isPlaying ? ' playing' : '') +
     (isChecked ? ' checked' : '') +
+    (t.purchased ? ' is-purchased' : '') +
     (isUnstreamable ? ' unstreamable' : '');
   li.dataset.trackId = trackId;
   li.dataset.playlistId = playlistId;
@@ -1369,6 +1548,7 @@ function buildTrackRow(trackId, playlistId) {
     <div class="col-time">${fmtDuration(t.duration)}</div>
     <div class="col-artist">${esc(t.artist)}</div>
     <div class="col-album">${esc(t.albumTitle ?? '')}</div>
+    <div class="col-purchased">${esc(fmtPurchasedCell(t, purchasedMode))}</div>
     <div class="col-genre">${genreHtml}</div>
     <div class="col-price">${esc(fmtPrice(t))}</div>
     <button class="track-cart-btn" title="Add to Bandcamp cart">
@@ -1781,9 +1961,7 @@ function toggleTrackInPlaylist(trackId, playlistId) {
   if (!pl) return;
   if (pl.trackIds.includes(trackId)) {
     pl.trackIds = pl.trackIds.filter(id => id !== trackId);
-    // Check if track is now orphaned
-    const inUse = state.playlists.some(p => p.trackIds.includes(trackId));
-    if (!inUse) delete state.tracks[trackId];
+    if (!isTrackReferenced(trackId)) delete state.tracks[trackId];
   } else {
     pl.trackIds.push(trackId);
   }
@@ -2206,8 +2384,7 @@ function removeFromPlaylist(trackId, playlistId) {
   const pl = getPlaylist(playlistId);
   if (!pl) return;
   pl.trackIds = pl.trackIds.filter(id => id !== trackId);
-  const inUse = state.playlists.some(p => p.trackIds.includes(trackId));
-  if (!inUse) delete state.tracks[trackId];
+  if (!isTrackReferenced(trackId)) delete state.tracks[trackId];
   schedSave(); renderSidebar(); renderContent();
   if (ui.selectedTrackId === trackId) {
     ui.selectedTrackId = null;
@@ -2714,14 +2891,32 @@ async function pushTracksViaExtension(trackIds) {
     return;
   }
 
-  const queueTracks = tracks.map(t => {
-    const url = t.url ?? t.albumUrl ?? '';
+  const resolvedTracks = await Promise.all(tracks.map(async t => {
+    const prefersAlbum = !!(t.albumUrl && /demo|sample pack|download link/i.test(`${t.title ?? ''} ${t.albumTitle ?? ''}`));
+    if (prefersAlbum && !t.bcAlbumId && t.albumUrl) {
+      try {
+        const lookup = await api.post('/api/track/lookup', { url: t.albumUrl });
+        const albumTrack = lookup.items?.[0];
+        if (albumTrack?.bcAlbumId) {
+          t.bcAlbumId = albumTrack.bcAlbumId;
+          if (!t.albumPrice && albumTrack.albumPrice) t.albumPrice = albumTrack.albumPrice;
+        }
+      } catch { /* keep existing metadata */ }
+    }
+    return t;
+  }));
+
+  const queueTracks = resolvedTracks.map(t => {
+    const prefersAlbum = !!(t.bcAlbumId && t.albumUrl && /demo|sample pack|download link/i.test(`${t.title ?? ''} ${t.albumTitle ?? ''}`));
+    const url = prefersAlbum ? (t.albumUrl ?? t.url ?? '') : (t.url ?? t.albumUrl ?? '');
     const origin = url.match(/^(https?:\/\/[^/]+)/)?.[1] ?? '';
     return {
       origin,
-      itemId:   String(t.bcTrackId ?? t.bcAlbumId),
-      itemType: t.bcTrackId ? 't' : 'p',
-      price:    t.price ? String(parseFloat(t.price)) : '1'
+      itemId:   String(prefersAlbum ? t.bcAlbumId : (t.bcTrackId ?? t.bcAlbumId)),
+      itemType: prefersAlbum ? 'p' : (t.bcTrackId ? 't' : 'p'),
+      price:    prefersAlbum
+        ? String(parseFloat(t.albumPrice ?? t.price ?? '1'))
+        : (t.price ? String(parseFloat(t.price)) : '1')
     };
   }).filter(t => t.origin && t.itemId);
 
@@ -3200,7 +3395,14 @@ function bindEvents() {
   // Sort
   document.getElementById('sort-select').addEventListener('change', e => {
     ui.sortBy = e.target.value;
-    renderContent();
+    renderCurrentTrackView();
+  });
+  document.querySelectorAll('#track-col-header .sort-header').forEach(btn => {
+    btn.dataset.baseLabel = btn.textContent.trim();
+    btn.addEventListener('click', () => {
+      if (!isHeaderSortEnabled()) return;
+      toggleHeaderSort(btn.dataset.sortKey);
+    });
   });
 
   // Filter panel
@@ -3220,6 +3422,12 @@ function bindEvents() {
   document.getElementById('filter-purchased').addEventListener('change', e => {
     activeFilters.purchased = e.target.value; updateFilterBtn(); renderContent();
   });
+  document.getElementById('hide-purchased-btn').addEventListener('click', () => {
+    activeFilters.purchased = activeFilters.purchased === 'unowned' ? 'all' : 'unowned';
+    document.getElementById('filter-purchased').value = activeFilters.purchased;
+    updateFilterBtn();
+    renderContent();
+  });
   document.getElementById('filter-price').addEventListener('change', e => {
     activeFilters.price = e.target.value; updateFilterBtn(); renderContent();
   });
@@ -3236,6 +3444,10 @@ function bindEvents() {
   globalSearchEl.addEventListener('input', e => handleGlobalSearch(e.target.value));
   globalSearchEl.addEventListener('keydown', e => { if (e.key === 'Escape') clearGlobalSearch(); });
   document.getElementById('global-search-clear').addEventListener('click', clearGlobalSearch);
+  document.getElementById('global-search-scope').addEventListener('change', e => {
+    globalSearchScope = e.target.value;
+    if (globalSearchQuery) handleGlobalSearch(document.getElementById('global-search').value);
+  });
 
   document.getElementById('push-all-cart-btn').addEventListener('click', () => pushPlaylistToCart(ui.activePlaylistId));
   document.getElementById('push-selected-cart-btn').addEventListener('click', pushSelectedToCart);

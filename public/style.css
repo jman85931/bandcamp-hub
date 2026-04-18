@@ -20,8 +20,8 @@
   --sidebar-w: 200px;
   --detail-w:  300px;
   --radius:    6px;
-  /* Track list column grid: check(1) | #(2) | art(3) | title(4) | time(5) | artist(6) | album(7) | genre(8) | price(9) | cart(10) | actions(11) */
-  --track-cols: 26px 22px 36px 2fr 70px 1.2fr 0.8fr 76px 60px 74px 52px;
+  /* Track list column grid: check(1) | #(2) | art(3) | title(4) | time(5) | artist(6) | album(7) | purchased(8) | genre(9) | price(10) | cart(11) | actions(12) */
+  --track-cols: 26px 22px 36px 1.9fr 70px 1.1fr 0.9fr 92px 76px 60px 74px 52px;
 }
 
 html, body {
@@ -68,18 +68,37 @@ html, body {
   padding: 0 24px;
 }
 .global-search-wrap {
-  position: relative;
   display: flex;
   align-items: center;
   width: 100%;
   max-width: 360px;
+  gap: 8px;
 }
-.global-search-wrap .search-icon {
+.global-search-input-wrap {
+  position: relative;
+  flex: 1;
+}
+.global-search-input-wrap .search-icon {
   position: absolute;
   left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--text3);
   pointer-events: none;
 }
+#global-search-scope {
+  width: 92px;
+  flex-shrink: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text2);
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+#global-search-scope:focus { border-color: var(--accent); color: var(--text); }
 #global-search {
   width: 100%;
   background: var(--bg3);
@@ -500,14 +519,48 @@ html, body {
   letter-spacing: 0.04em;
   user-select: none;
 }
+#track-col-header .sort-header {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  min-width: 0;
+  padding: 0;
+}
+#track-col-header .sort-header.sortable {
+  cursor: pointer;
+}
+#track-col-header .sort-header.sortable:hover {
+  color: var(--text2);
+}
+#track-col-header .sort-header.active {
+  color: var(--text);
+}
+#track-col-header .sort-header .sort-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+#track-col-header .sort-header .sort-arrow {
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1;
+}
 #track-col-header .tcol-time,
 #track-col-header .tcol-album,
+#track-col-header .tcol-purchased,
 #track-col-header .tcol-genre,
 #track-col-header .tcol-price { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #track-col-header .tcol-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 40px; }
 .tcol-check { display: flex; align-items: center; justify-content: center; }
 .tcol-num   { text-align: right; }
 .tcol-time  { text-align: right; }
+.tcol-purchased { text-align: center; }
 .tcol-genre { text-align: center; }
 .tcol-price { text-align: left; padding-left: 24px; }
 
@@ -675,6 +728,19 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.col-purchased {
+  color: var(--text3);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-item.is-purchased .col-purchased {
+  color: var(--purchased);
+  font-weight: 600;
 }
 
 /* Genre */
@@ -2054,4 +2120,3 @@ select {
   color: var(--text3);
   font-size: 12px;
 }
-

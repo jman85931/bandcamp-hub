@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bandcamp Hub</title>
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <div id="app">
@@ -16,11 +16,18 @@
       </div>
       <div class="header-center">
         <div class="global-search-wrap">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="search-icon">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input type="text" id="global-search" placeholder="Search tracks…" autocomplete="off" spellcheck="false">
-          <button id="global-search-clear" class="search-clear hidden" title="Clear">✕</button>
+          <div class="global-search-input-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="search-icon">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="global-search" placeholder="Search tracks…" autocomplete="off" spellcheck="false">
+            <button id="global-search-clear" class="search-clear hidden" title="Clear">✕</button>
+          </div>
+          <select id="global-search-scope" title="Search scope" aria-label="Search scope">
+            <option value="library">Library</option>
+            <option value="purchased">Purchased</option>
+            <option value="wishlist">Wishlist</option>
+          </select>
         </div>
       </div>
       <div class="header-right">
@@ -60,7 +67,7 @@
             <svg class="lib-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
             </svg>
-            <span class="lib-name">Global Library</span>
+            <span class="lib-name">Library</span>
             <span class="lib-count" id="lib-library-count"></span>
           </li>
           <li class="library-item" id="lib-purchased" data-lib="purchased">
@@ -121,11 +128,11 @@
                     <select id="filter-genre"><option value="">All genres</option></select>
                   </div>
                   <div class="filter-row">
-                    <label>Owned</label>
+                    <label>Purchased</label>
                     <select id="filter-purchased">
                       <option value="all">All</option>
-                      <option value="owned">Owned only</option>
-                      <option value="unowned">Unowned only</option>
+                      <option value="owned">Purchased only</option>
+                      <option value="unowned">Hide purchased</option>
                     </select>
                   </div>
                   <div class="filter-row">
@@ -139,13 +146,22 @@
                   <button id="filter-clear-btn" class="btn-sm" style="margin-top:6px;width:100%">Clear filters</button>
                 </div>
               </div>
+              <button class="btn-sm" id="hide-purchased-btn">Hide Purchased</button>
               <select id="sort-select" class="btn-sm sort-select" title="Sort by">
                 <option value="default">↕ Default</option>
+                <option value="title-asc">A→Z Title</option>
+                <option value="title-desc">Z→A Title</option>
                 <option value="artist">A→Z Artist</option>
+                <option value="artist-desc">Z→A Artist</option>
                 <option value="album">A→Z Album</option>
+                <option value="album-desc">Z→A Album</option>
+                <option value="purchase">Purchase Date</option>
                 <option value="price-asc">Price ↑</option>
                 <option value="price-desc">Price ↓</option>
-                <option value="duration">Duration</option>
+                <option value="duration">Duration ↑</option>
+                <option value="duration-desc">Duration ↓</option>
+                <option value="genre">A→Z Genre</option>
+                <option value="genre-desc">Z→A Genre</option>
                 <option value="release">Release Date</option>
               </select>
               <button class="btn-sm" id="push-all-cart-btn">Push All to Cart</button>
@@ -184,12 +200,13 @@
           <div class="tcol-check"></div>
           <div class="tcol-num">#</div>
           <div class="tcol-art"></div>
-          <div class="tcol-title">Title</div>
-          <div class="tcol-time">Time</div>
-          <div class="tcol-artist">Artist</div>
-          <div class="tcol-album">Album</div>
-          <div class="tcol-genre">Genre</div>
-          <div class="tcol-price">Price</div>
+          <button class="tcol-title sort-header" data-sort-key="title" type="button">Title</button>
+          <button class="tcol-time sort-header" data-sort-key="duration" type="button">Time</button>
+          <button class="tcol-artist sort-header" data-sort-key="artist" type="button">Artist</button>
+          <button class="tcol-album sort-header" data-sort-key="album" type="button">Album</button>
+          <button class="tcol-purchased sort-header" id="tcol-purchased" data-sort-key="purchase" type="button">Purchased</button>
+          <button class="tcol-genre sort-header" data-sort-key="genre" type="button">Genre</button>
+          <button class="tcol-price sort-header" data-sort-key="price" type="button">Price</button>
           <div class="tcol-cart"></div>
           <div class="tcol-menu"></div>
         </div>
@@ -526,6 +543,6 @@
   <!-- Toast notifications -->
   <div id="toast-container"></div>
 
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

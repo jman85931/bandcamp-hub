@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bandcamp Hub</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-shell">
+    <header class="popup-header">
+      <div class="eyebrow">Bandcamp Hub</div>
+    </header>
+
+    <div id="message" class="message hidden"></div>
+
+    <main id="popup-main" class="popup-main hidden">
+      <section class="card">
+        <div id="source-summary" class="source-summary"></div>
+        <div id="album-controls" class="album-controls hidden">
+          <button id="select-all-btn" class="btn btn-subtle" type="button">Select All</button>
+          <button id="select-none-btn" class="btn btn-subtle" type="button">None</button>
+        </div>
+        <ul id="item-list" class="item-list"></ul>
+      </section>
+
+      <section class="card actions-card">
+        <div class="action-row">
+          <div>
+            <div class="action-title">Global Library</div>
+            <div class="selection-copy" id="selection-copy">0 selected</div>
+          </div>
+          <button id="add-library-btn" class="btn btn-primary" type="button">Add to Global Library</button>
+        </div>
+
+        <div class="playlist-block">
+          <label class="field-label" for="playlist-search">Add to Playlist</label>
+          <div class="playlist-combobox">
+            <input
+              id="playlist-search"
+              class="text-input playlist-search"
+              type="text"
+              placeholder="Start typing to find a playlist…"
+              autocomplete="off"
+              aria-expanded="false"
+              aria-controls="playlist-menu"
+            >
+            <button id="playlist-toggle" class="playlist-toggle" type="button" aria-label="Show playlists">▾</button>
+            <div id="playlist-menu" class="playlist-menu hidden"></div>
+          </div>
+          <div class="playlist-actions">
+            <div id="playlist-selection-copy" class="selection-copy">No playlist selected</div>
+            <button id="add-playlist-btn" class="btn btn-subtle" type="button" disabled>Add to Playlist</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section id="unsupported" class="card hidden">
+      <p class="unsupported-copy">Open a Bandcamp track, album, or album/EP page to add music to the Hub.</p>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

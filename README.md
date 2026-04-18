@@ -1,6 +1,6 @@
 # Bandcamp Hub
 
-A local web app for managing your Bandcamp library. Build playlists, play tracks, sync your wishlist, and push tracks directly to your Bandcamp cart — all from `localhost:3000`.
+A local web app for managing your Bandcamp music library. Build playlists, keep a standalone Library, sync purchased and wishlist items, and push tracks or sample packs directly to your Bandcamp cart — all from `localhost:3000`.
 
 Built as a self-hosted alternative to trackden.org.
 
@@ -11,13 +11,14 @@ Built as a self-hosted alternative to trackden.org.
 ## Features
 
 ### Library
+- **Library + playlists** — keep a standalone Library alongside regular playlists
 - **Playlists** — create multiple playlists, add tracks by pasting Bandcamp URLs (track or album)
 - **Folders** — organise playlists into collapsible folders in the sidebar
-- **Smart playlists** — auto-curated views filtered by genre, ownership, price, or date added (Recently Added, Unowned, Free built in; create your own)
+- **Smart playlists** — auto-curated views filtered by genre, purchased state, price, or date added (Recently Added, Unowned, Free built in; create your own)
 - **Duplicate detection** — warns when a URL already exists in your library before adding
-- **Tags & filtering** — filter any playlist by genre, ownership, or price
-- **Sort** — sort by artist, album, price, duration, or release date
-- **Global search** — find any track across all playlists instantly
+- **Tags & filtering** — filter any playlist or Library view by genre, purchased state, or price
+- **Header sorting** — click track-list column headers to sort by title, time, artist, album, purchase date, genre, or price
+- **Scoped search** — search within Library, Purchased, or Wishlist from the global search bar
 - **Export / import** — save a playlist to JSON and reload it later
 
 ### Player
@@ -36,13 +37,20 @@ Built as a self-hosted alternative to trackden.org.
 ### Wishlist & cart
 - **Wishlist sync** — pulls your full Bandcamp wishlist with album groupings
 - **Cart push** — one-click push of any track, selection, or full playlist to your Bandcamp cart (via Chrome extension)
+- **Sample-pack aware carting** — demo-track entries can resolve to the underlying digital album/package when pushing to cart
 - **Cart pull** — reads your live Bandcamp cart into the Hub
 - **Cart removal** — remove individual tracks or clear the whole cart from within the Hub
-- **Collection sync** — imports purchased items and marks them as owned
+- **Collection sync** — imports purchased items, stores purchase dates, and marks matching library tracks as purchased
 
 ### Metadata & prices
 - **Price display** — shows per-track and album prices with GBP conversion
-- **Library stats** — total tracks, total value, genre breakdown, priciest unowned albums
+- **Library stats** — total tracks, total value, genre breakdown, priciest unpurchased albums
+
+### Chrome extension popup
+- **Add current Bandcamp page** — click the extension on a Bandcamp track or album page to add it straight into the Hub
+- **One-click Library add** — send the current page directly to your Library
+- **Searchable playlist picker** — type to find the playlist you want, then add selected tracks
+- **Album / EP selection** — choose all tracks or only specific tracks before adding
 
 ---
 
@@ -72,7 +80,7 @@ Then open **http://localhost:3000**.
 
 ### 3. Load the Chrome extension
 
-The extension handles all cart operations (push, pull, remove) using your real browser session.
+The extension handles cart operations and also adds the popup used to send the current Bandcamp page into your Hub.
 
 1. Open `chrome://extensions` in Chrome
 2. Enable **Developer mode** (toggle, top-right)
@@ -99,13 +107,21 @@ Save settings. That's it.
 
 Paste any Bandcamp track or album URL into the input at the top of a playlist. Album URLs open a picker so you can add individual tracks or all at once. If a URL is already in your library, a warning will appear before adding.
 
+### Adding from Bandcamp pages
+
+While browsing Bandcamp, click the Chrome extension. On supported track and album pages you can:
+
+- add the current page straight to your Library
+- search for a playlist and add to that instead
+- choose individual tracks from albums / EPs before adding
+
 ### Organising with folders
 
 Click **+ Folder** in the sidebar to create a folder. Drag playlists into it to group them. Folders collapse to keep the sidebar tidy.
 
 ### Smart playlists
 
-Smart playlists auto-populate based on criteria — genre, ownership, price range, or how recently tracks were added. Four built-in views (Recently Added, Unowned, Free) are created automatically. Click **+ Smart Playlist** to define your own.
+Smart playlists auto-populate based on criteria — genre, purchased state, price range, or how recently tracks were added. Three built-in views (Recently Added, Unowned, Free) are created automatically. Click **+ Smart Playlist** to define your own.
 
 ### Playing music
 
@@ -115,13 +131,17 @@ Click any track to play it. Use the player bar at the bottom for playback contro
 
 Select tracks (checkbox on hover) and click **Push Selected to Cart**, or use **Push to Cart** on a full playlist. The extension silently adds them to your Bandcamp cart in the background.
 
+### Library search and sorting
+
+Use the header search bar to search within `Library`, `Purchased`, or `Wishlist`. In Library and playlist-style views, click the track-list headers to sort by the visible data. Price sorts high-to-low on first click, then low-to-high on the second.
+
 ### Wishlist
 
-Click **Cart / Wishlist** (top-right) → **Wishlist** tab → **Pull from Bandcamp**. Albums appear as expandable groups. Click any track to add it to a playlist.
+Open the **Wishlist** view in the sidebar and click **Pull from Bandcamp**. Albums appear as expandable groups. Click any track to add it to a playlist.
 
 ### Cart
 
-Click **Cart / Wishlist** → **Cart** tab → **Pull from Bandcamp** to read your current cart. From here you can remove individual items or clear the whole cart.
+Open the **Cart** view in the sidebar and click **Pull from Bandcamp** to read your current cart. From here you can remove individual items or clear the whole cart.
 
 ### Keyboard shortcuts
 
@@ -138,7 +158,7 @@ Click **Cart / Wishlist** → **Cart** tab → **Pull from Bandcamp** to read yo
 
 ## Data
 
-Everything is stored in `data.json` in the project root — playlists, track metadata, settings, and your session cookie. This file is gitignored and never leaves your machine.
+Everything is stored in `data.json` in the project root — playlists, Library membership, track metadata, settings, and your session cookie. This file is gitignored and never leaves your machine.
 
 Stream URLs are fetched fresh on every play (Bandcamp tokens expire quickly) and are never stored.
 
