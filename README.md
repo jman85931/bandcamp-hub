@@ -14,12 +14,19 @@ Built as a self-hosted alternative to trackden.org.
 - **Library + playlists** — keep a standalone Library alongside regular playlists
 - **Playlists** — create multiple playlists, add tracks by pasting Bandcamp URLs (track or album)
 - **Folders** — organise playlists into collapsible folders in the sidebar
-- **Smart playlists** — auto-curated views filtered by genre, purchased state, price, or date added (Recently Added, Unowned, Free built in; create your own)
+- **Smart playlists** — auto-curated views filtered by genre, purchased state, price, or date added (Recently Added, Unpurchased, Free built in; create your own)
 - **Duplicate detection** — warns when a URL already exists in your library before adding
-- **Tags & filtering** — filter any playlist or Library view by genre, purchased state, or price
-- **Header sorting** — click track-list column headers to sort by title, time, artist, album, purchase date, genre, or price
+- **Tags & filtering** — filter any playlist or Library view by genre, purchased state, or price, including a hide-purchased option
+- **Header sorting** — click track-list column headers to sort by title, time, artist, album, purchased state, purchase date, genre, or price
 - **Scoped search** — search within Library, Purchased, or Wishlist from the global search bar
 - **Export / import** — save a playlist to JSON and reload it later
+
+### Release inbox
+- **New Releases view** — track artists already represented in your Library/playlists and pull their latest Bandcamp releases into a review queue
+- **Inbox states** — releases are stored locally as `new`, `added`, or `archived`
+- **Manual refresh** — pull releases on demand rather than running background syncs
+- **Quick actions** — open on Bandcamp, add straight to Library, send to a playlist, or archive
+- **Bulk archive** — clear handled releases from the inbox without losing history
 
 ### Player
 - **Playback** — plays tracks in order with next/prev and progress bar
@@ -121,7 +128,7 @@ Click **+ Folder** in the sidebar to create a folder. Drag playlists into it to 
 
 ### Smart playlists
 
-Smart playlists auto-populate based on criteria — genre, purchased state, price range, or how recently tracks were added. Three built-in views (Recently Added, Unowned, Free) are created automatically. Click **+ Smart Playlist** to define your own.
+Smart playlists auto-populate based on criteria — genre, purchased state, price range, or how recently tracks were added. Three built-in views (Recently Added, Unpurchased, Free) are created automatically. Click **+ Smart Playlist** to define your own.
 
 ### Playing music
 
@@ -130,6 +137,10 @@ Click any track to play it. Use the player bar at the bottom for playback contro
 ### Pushing to cart
 
 Select tracks (checkbox on hover) and click **Push Selected to Cart**, or use **Push to Cart** on a full playlist. The extension silently adds them to your Bandcamp cart in the background.
+
+### New Releases
+
+Open **New Releases** in the sidebar and click **Pull Releases**. The Hub derives tracked artists from your Library and regular playlists, fetches their Bandcamp discography, and drops unseen releases into a local inbox. From there you can open a release on Bandcamp, add it to Library, send it to a playlist, or archive it once handled.
 
 ### Library search and sorting
 
@@ -158,7 +169,7 @@ Open the **Cart** view in the sidebar and click **Pull from Bandcamp** to read y
 
 ## Data
 
-Everything is stored in `data.json` in the project root — playlists, Library membership, track metadata, settings, and your session cookie. This file is gitignored and never leaves your machine.
+Everything is stored in `data.json` in the project root — playlists, Library membership, track metadata, tracked releases, settings, and your session cookie. This file is gitignored and never leaves your machine.
 
 Stream URLs are fetched fresh on every play (Bandcamp tokens expire quickly) and are never stored.
 
