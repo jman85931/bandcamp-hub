@@ -10,15 +10,39 @@ Built as a self-hosted alternative to trackden.org.
 
 ## Features
 
+### Library
 - **Playlists** — create multiple playlists, add tracks by pasting Bandcamp URLs (track or album)
-- **Player** — plays tracks in order with next/prev, shows artwork and metadata
+- **Folders** — organise playlists into collapsible folders in the sidebar
+- **Smart playlists** — auto-curated views filtered by genre, ownership, price, or date added (Recently Added, Unowned, Free built in; create your own)
+- **Duplicate detection** — warns when a URL already exists in your library before adding
+- **Tags & filtering** — filter any playlist by genre, ownership, or price
+- **Sort** — sort by artist, album, price, duration, or release date
+- **Global search** — find any track across all playlists instantly
+- **Export / import** — save a playlist to JSON and reload it later
+
+### Player
+- **Playback** — plays tracks in order with next/prev and progress bar
+- **Shuffle & repeat** — shuffle mode and repeat (all/one) per session
+- **Queue panel** — see and reorder what's playing next
+- **Keyboard shortcuts** — space to play/pause, arrow keys to seek and skip, and more
+
+### Track management
+- **Batch genre edit** — select multiple tracks and set their genre in one action
+- **Notes** — add freeform notes to any track, visible in the detail panel
+- **Track refresh** — re-fetch price and metadata for individual tracks or a whole playlist
+- **Refresh All** — bulk refresh every track in a playlist
+- **Non-streamable detection** — tracks Bandcamp won't stream are flagged and skipped automatically
+
+### Wishlist & cart
 - **Wishlist sync** — pulls your full Bandcamp wishlist with album groupings
-- **Cart push** — one-click push of any track or playlist to your Bandcamp cart (via Chrome extension)
+- **Cart push** — one-click push of any track, selection, or full playlist to your Bandcamp cart (via Chrome extension)
 - **Cart pull** — reads your live Bandcamp cart into the Hub
 - **Cart removal** — remove individual tracks or clear the whole cart from within the Hub
-- **Collection sync** — imports purchased items and marks them as bought
+- **Collection sync** — imports purchased items and marks them as owned
+
+### Metadata & prices
 - **Price display** — shows per-track and album prices with GBP conversion
-- **Tags & filtering** — filter library by genre/tag
+- **Library stats** — total tracks, total value, genre breakdown, priciest unowned albums
 
 ---
 
@@ -58,9 +82,9 @@ The extension handles all cart operations (push, pull, remove) using your real b
 
 ### 4. Configure Settings
 
-Open Settings (top-right) and:
+Open Settings (gear icon, top-right) and:
 
-- Click **⬇ Fetch from Extension** to automatically grab your Bandcamp session cookie (requires the extension and being logged in to bandcamp.com)
+- Click **Fetch from Extension** to automatically grab your Bandcamp session cookie (requires the extension and being logged in to bandcamp.com)
 - Enter your **Bandcamp username** (from your profile URL, e.g. `bandcamp.com/yourusername`)
 
 Save settings. That's it.
@@ -73,19 +97,42 @@ Save settings. That's it.
 
 ### Adding tracks
 
-Paste any Bandcamp track or album URL into the input at the top of a playlist. Album URLs open a picker so you can add individual tracks or all at once.
+Paste any Bandcamp track or album URL into the input at the top of a playlist. Album URLs open a picker so you can add individual tracks or all at once. If a URL is already in your library, a warning will appear before adding.
+
+### Organising with folders
+
+Click **+ Folder** in the sidebar to create a folder. Drag playlists into it to group them. Folders collapse to keep the sidebar tidy.
+
+### Smart playlists
+
+Smart playlists auto-populate based on criteria — genre, ownership, price range, or how recently tracks were added. Four built-in views (Recently Added, Unowned, Free) are created automatically. Click **+ Smart Playlist** to define your own.
+
+### Playing music
+
+Click any track to play it. Use the player bar at the bottom for playback controls. Press **Space** to play/pause, **←/→** to seek, **Shift+←/→** to skip tracks. Click the queue icon to see and reorder what's up next.
 
 ### Pushing to cart
 
-Select tracks (checkbox on hover) or use the **Push to Cart** button on a playlist — the extension silently adds them to your Bandcamp cart in the background.
+Select tracks (checkbox on hover) and click **Push Selected to Cart**, or use **Push to Cart** on a full playlist. The extension silently adds them to your Bandcamp cart in the background.
 
 ### Wishlist
 
-Click **Cart / Wishlist** (top-right) → **Wishlist** tab → **Pull from Bandcamp**. Albums appear as expandable groups.
+Click **Cart / Wishlist** (top-right) → **Wishlist** tab → **Pull from Bandcamp**. Albums appear as expandable groups. Click any track to add it to a playlist.
 
 ### Cart
 
 Click **Cart / Wishlist** → **Cart** tab → **Pull from Bandcamp** to read your current cart. From here you can remove individual items or clear the whole cart.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / pause |
+| `←` / `→` | Seek back / forward 10s |
+| `Shift+←` / `Shift+→` | Previous / next track |
+| `M` | Mute / unmute |
+| `/` | Focus search bar |
+| `Esc` | Close panel / clear search |
 
 ---
 
