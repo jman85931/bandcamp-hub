@@ -22,7 +22,8 @@ const DEFAULT_DATA = {
   sidebarOrder: [],
   cartItems: [],
   wishlistItems: [],
-  libraryTrackIds: []
+  libraryTrackIds: [],
+  trackedReleases: []
 };
 
 function normalizeData(data = {}) {
@@ -38,7 +39,8 @@ function normalizeData(data = {}) {
     sidebarOrder: Array.isArray(data.sidebarOrder) ? data.sidebarOrder : [],
     cartItems: Array.isArray(data.cartItems) ? data.cartItems : [],
     wishlistItems: Array.isArray(data.wishlistItems) ? data.wishlistItems : [],
-    libraryTrackIds: Array.isArray(data.libraryTrackIds) ? data.libraryTrackIds.filter(Boolean) : []
+    libraryTrackIds: Array.isArray(data.libraryTrackIds) ? data.libraryTrackIds.filter(Boolean) : [],
+    trackedReleases: Array.isArray(data.trackedReleases) ? data.trackedReleases.filter(Boolean) : []
   };
 }
 
@@ -109,6 +111,112 @@ function getTrackLocations(data, trackId) {
   return locations;
 }
 
+function deriveArtistUrl(track) {
+  if (track?.artistUrl) return normalizeBandcampUrl(track.artistUrl);
+  const candidate = track?.albumUrl ?? track?.url ?? null;
+  if (!candidate) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (!parsed.hostname || parsed.hostname === 'bandcamp.com') return null;
+    return normalizeBandcampUrl(`${parsed.protocol}//${parsed.host}`);
+  } catch {
+    return null;
+  }
+}
+
+function getTrackedArtistSources(data) {
+  const sources = [];
+  const seen = new Set();
+  for (const trackId of getGlobalLibraryTrackIds(data)) {
+    const track = data.tracks[trackId];
+    if (!track) continue;
+    const artistUrl = deriveArtistUrl(track);
+    const artistName = track.artist ?? 'Unknown Artist';
+    const key = `${artistUrl ?? ''}|||${artistName.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push({ artistName, artistUrl });
+  }
+  return sources.filter(source => source.artistUrl);
+}
+
+function releaseStateForUrl(data, url) {
+  const norm = normalizeBandcampUrl(url);
+  if (!norm) return 'new';
+  const alreadyAdded = Object.values(data.tracks ?? {}).some(track =>
+    normalizeBandcampUrl(track.url) === norm || normalizeBandcampUrl(track.albumUrl) === norm
+  );
+  return alreadyAdded ? 'added' : 'new';
+}
+
+async function fetchReleaseMetadata(item, fallbackArtistUrl = null) {
+  const url = normalizeBandcampUrl(item?.url);
+  if (!url) return null;
+  return {
+    url,
+    artistName: item.artist?.name ?? 'Unknown Artist',
+    artistUrl: normalizeBandcampUrl(fallbackArtistUrl),
+    title: item.name ?? 'Untitled',
+    artwork: item.imageUrl ?? null,
+    releaseDate: item.releaseDate ?? null,
+    type: item.type === 'track' ? 'track' : 'album'
+  };
+}
+
+async function pullTrackedReleases(data) {
+  applySettings(data);
+  const MAX_RELEASES_PER_ARTIST = 12;
+  const sources = getTrackedArtistSources(data);
+  let added = 0;
+  let updated = 0;
+  for (const source of sources) {
+    try {
+      const discography = await withTimeout(bcfetch.band.getDiscography({ bandUrl: source.artistUrl }), 20000);
+      for (const item of (discography ?? []).slice(0, MAX_RELEASES_PER_ARTIST)) {
+        const meta = await fetchReleaseMetadata(item, source.artistUrl);
+        if (!meta?.url) continue;
+        const existing = data.trackedReleases.find(release => normalizeBandcampUrl(release.url) === meta.url);
+        const nextState = releaseStateForUrl(data, meta.url);
+        if (existing) {
+          existing.artistName = meta.artistName ?? existing.artistName;
+          existing.artistUrl = meta.artistUrl ?? existing.artistUrl;
+          existing.title = meta.title ?? existing.title;
+          existing.artwork = meta.artwork ?? existing.artwork;
+          existing.releaseDate = meta.releaseDate ?? existing.releaseDate ?? null;
+          existing.type = meta.type ?? existing.type ?? 'album';
+          if (existing.state !== 'archived') existing.state = nextState;
+          if (nextState === 'added' && !existing.addedTrackIds) existing.addedTrackIds = [];
+          updated++;
+          continue;
+        }
+        data.trackedReleases.push({
+          id: uuidv4(),
+          url: meta.url,
+          artistName: meta.artistName,
+          artistUrl: meta.artistUrl ?? source.artistUrl,
+          title: meta.title,
+          artwork: meta.artwork ?? null,
+          releaseDate: meta.releaseDate ?? null,
+          type: meta.type ?? 'album',
+          state: nextState,
+          discoveredAt: new Date().toISOString(),
+          addedTrackIds: nextState === 'added' ? [] : []
+        });
+        added++;
+      }
+    } catch (err) {
+      console.warn('[releases] failed for', source.artistUrl, err.message);
+    }
+  }
+
+  data.trackedReleases.sort((a, b) => {
+    const aTime = new Date(a.releaseDate ?? a.discoveredAt ?? 0).getTime();
+    const bTime = new Date(b.releaseDate ?? b.discoveredAt ?? 0).getTime();
+    return bTime - aTime;
+  });
+  return { trackedArtists: sources.length, added, updated, items: data.trackedReleases };
+}
+
 function buildDuplicateInfo(data, url) {
   const norm = normalizeBandcampUrl(url);
   if (!norm) return [];
@@ -119,6 +227,31 @@ function buildDuplicateInfo(data, url) {
       title: track.title ?? 'Unknown Track',
       locations: getTrackLocations(data, track.id)
     }));
+}
+
+function findInheritedPurchaseSource(data, track) {
+  const normUrl = normalizeBandcampUrl(track?.url);
+  const normAlbumUrl = normalizeBandcampUrl(track?.albumUrl);
+  return Object.values(data.tracks ?? {}).find(existing => {
+    if (!existing?.purchased) return false;
+    return (
+      (normUrl && normalizeBandcampUrl(existing.url) === normUrl) ||
+      (normAlbumUrl && normalizeBandcampUrl(existing.url) === normAlbumUrl) ||
+      (normAlbumUrl && normalizeBandcampUrl(existing.albumUrl) === normAlbumUrl) ||
+      (track?.bcTrackId != null && existing.bcTrackId === track.bcTrackId) ||
+      (track?.bcAlbumId != null && existing.bcAlbumId === track.bcAlbumId)
+    );
+  }) ?? null;
+}
+
+function applyInheritedPurchaseState(data, track) {
+  if (!track) return track;
+  const source = findInheritedPurchaseSource(data, track);
+  if (source) {
+    track.purchased = true;
+    track.purchaseDate = track.purchaseDate ?? source.purchaseDate ?? null;
+  }
+  return track;
 }
 
 function getPropValue(obj, name) {
@@ -223,6 +356,7 @@ function buildTrackRecord(track, albumInfo = null, trackPageInfo = null) {
   return {
     id: uuidv4(),
     url: track.url ?? null,
+    artistUrl: track.artist?.url ?? albumInfo?.artist?.url ?? null,
     albumUrl: albumInfo?.url ?? track.album?.url ?? null,
     albumTrackNum: track.position ?? null,
     title: track.name ?? track.title ?? 'Unknown Track',
@@ -365,7 +499,7 @@ app.post('/api/library/add', async (req, res) => {
       }
 
       const trackId = item.id ?? uuidv4();
-      const track = { ...item, id: trackId, addedAt: item.addedAt ?? new Date().toISOString() };
+      const track = applyInheritedPurchaseState(data, { ...item, id: trackId, addedAt: item.addedAt ?? new Date().toISOString() });
       data.tracks[trackId] = track;
       addedTrackIds.push(trackId);
 
@@ -386,6 +520,36 @@ app.post('/api/library/add', async (req, res) => {
     console.error('library add error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/releases/pull', async (req, res) => {
+  const data = readData();
+  try {
+    const result = await pullTrackedReleases(data);
+    writeData(data);
+    res.json(result);
+  } catch (err) {
+    console.error('release pull error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/releases/:id/archive', (req, res) => {
+  const data = readData();
+  const release = data.trackedReleases.find(item => item.id === req.params.id);
+  if (!release) return res.status(404).json({ error: 'Release not found' });
+  release.state = 'archived';
+  writeData(data);
+  res.json({ ok: true, release });
+});
+
+app.post('/api/releases/:id/unarchive', (req, res) => {
+  const data = readData();
+  const release = data.trackedReleases.find(item => item.id === req.params.id);
+  if (!release) return res.status(404).json({ error: 'Release not found' });
+  release.state = releaseStateForUrl(data, release.url);
+  writeData(data);
+  res.json({ ok: true, release });
 });
 
 // ---------------------------------------------------------------------------
@@ -506,6 +670,7 @@ function normalizeRawFanItem(raw, tracklists) {
   const price = raw.sale_item_price ?? raw.price ?? null;
   const currency = raw.currency_code ?? raw.currency ?? null;
   return {
+    id: raw.item_id ?? null,
     type: raw.item_type === 'a' ? 'album' : 'track',
     url: raw.item_url,
     name: raw.item_title,

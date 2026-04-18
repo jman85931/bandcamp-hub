@@ -77,6 +77,13 @@
             <span class="lib-name">Purchased</span>
             <span class="lib-count" id="lib-purchased-count"></span>
           </li>
+          <li class="library-item" id="lib-releases" data-lib="releases">
+            <svg class="lib-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3v18"/><path d="M3 12h18"/><path d="M5.6 5.6l12.8 12.8"/><path d="M18.4 5.6L5.6 18.4"/>
+            </svg>
+            <span class="lib-name">New Releases</span>
+            <span class="lib-count" id="lib-releases-count"></span>
+          </li>
           <li class="library-item" id="lib-cart" data-lib="cart">
             <svg class="lib-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
@@ -155,7 +162,10 @@
                 <option value="artist-desc">Z→A Artist</option>
                 <option value="album">A→Z Album</option>
                 <option value="album-desc">Z→A Album</option>
-                <option value="purchase">Purchase Date</option>
+                <option value="purchased">Purchased First</option>
+                <option value="purchased-asc">Unpurchased First</option>
+                <option value="purchase-date">Newest Purchase</option>
+                <option value="purchase-date-asc">Oldest Purchase</option>
                 <option value="price-asc">Price ↑</option>
                 <option value="price-desc">Price ↓</option>
                 <option value="duration">Duration ↑</option>
@@ -172,6 +182,14 @@
             </div>
             <div id="lib-pull-actions" class="hidden">
               <button class="btn-sm" id="pull-purchased-btn">⬇ Pull from Bandcamp</button>
+              <button class="btn-sm hidden" id="pull-releases-btn">⬇ Pull Releases</button>
+              <select id="release-filter-select" class="btn-sm sort-select hidden" title="Release filter">
+                <option value="new">New</option>
+                <option value="all">All</option>
+                <option value="added">Added</option>
+                <option value="archived">Archived</option>
+              </select>
+              <button class="btn-sm hidden" id="archive-selected-releases-btn">Archive Selected</button>
               <button class="btn-sm" id="pull-cart-header-btn">⬇ Pull from Bandcamp</button>
               <button class="btn-sm" id="refresh-cart-btn">↻ Refresh All</button>
               <button class="btn-sm btn-danger hidden" id="remove-selected-cart-btn">✕ Remove Selected</button>
@@ -204,7 +222,8 @@
           <button class="tcol-time sort-header" data-sort-key="duration" type="button">Time</button>
           <button class="tcol-artist sort-header" data-sort-key="artist" type="button">Artist</button>
           <button class="tcol-album sort-header" data-sort-key="album" type="button">Album</button>
-          <button class="tcol-purchased sort-header" id="tcol-purchased" data-sort-key="purchase" type="button">Purchased</button>
+          <button class="tcol-purchased sort-header" id="tcol-purchased" data-sort-key="purchased" type="button">Purchased</button>
+          <button class="tcol-purchase-date sort-header" id="tcol-purchase-date" data-sort-key="purchase-date" type="button">Purchase Date</button>
           <button class="tcol-genre sort-header" data-sort-key="genre" type="button">Genre</button>
           <button class="tcol-price sort-header" data-sort-key="price" type="button">Price</button>
           <div class="tcol-cart"></div>

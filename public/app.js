@@ -8,6 +8,7 @@ let state = {
   cartItems: [],
   wishlistItems: [],
   libraryTrackIds: [],
+  trackedReleases: [],
   libQueue: []   // runtime queue for playing wishlist/cart albums (not persisted)
 };
 
@@ -21,7 +22,10 @@ let ui = {
   contextPlaylistId: null,
   collapsedAlbums: new Set(),
   pendingPickerItems: [],
+  pendingPickerMode: 'playlist',
+  pendingPickerReleaseId: null,
   cartPulledItems: [],
+  selectedReleaseIds: new Set(),
   playlistSearchQuery: '',
   detailPlaylistSearch: '',
   sortBy: 'default'  // 'default' | 'artist' | 'album' | 'price-asc' | 'price-desc' | 'duration' | 'release'
@@ -39,7 +43,8 @@ const SORT_HEADER_CONFIG = {
   duration: ['duration-desc', 'duration'],
   artist: ['artist', 'artist-desc'],
   album: ['album', 'album-desc'],
-  purchase: ['purchase', 'purchase-asc'],
+  purchased: ['purchased', 'purchased-asc'],
+  'purchase-date': ['purchase-date', 'purchase-date-asc'],
   genre: ['genre', 'genre-desc'],
   price: ['price-desc', 'price-asc']
 };
@@ -124,7 +129,8 @@ async function saveNow() {
       settings: state.settings, folders: state.folders,
       sidebarOrder: state.sidebarOrder,
       cartItems: state.cartItems, wishlistItems: state.wishlistItems,
-      libraryTrackIds: state.libraryTrackIds
+      libraryTrackIds: state.libraryTrackIds,
+      trackedReleases: state.trackedReleases
     });
   } catch (e) { toast('Save failed: ' + e.message, 'error'); }
 }
@@ -146,6 +152,7 @@ async function boot() {
     state.cartItems     = (data.cartItems     ?? []).filter(Boolean);
     state.wishlistItems = (data.wishlistItems ?? []).filter(Boolean);
     state.libraryTrackIds = (data.libraryTrackIds ?? []).filter(id => data.tracks?.[id]);
+    state.trackedReleases = (data.trackedReleases ?? []).filter(Boolean);
     // Remove smart playlists from sidebarOrder — they live in their own section
     const smartIds = new Set(state.playlists.filter(p => p.type === 'smart').map(p => p.id));
     state.sidebarOrder = state.sidebarOrder.filter(o => !(o.type === 'playlist' && smartIds.has(o.id)));
@@ -153,6 +160,7 @@ async function boot() {
 
   await fetchExchangeRates();
   ensureBuiltInSmartPlaylists();
+  if (reconcilePurchaseState()) await saveNow();
   bindEvents();
   syncSortSelect();
   updateSortHeaderUI();
@@ -188,10 +196,66 @@ function fmtDate(str) {
   } catch { return str; }
 }
 
-function fmtPurchasedCell(track, mode = 'status') {
+function fmtPurchasedCell(track) {
   if (!track?.purchased) return '';
-  if (mode === 'date') return fmtDate(track.purchaseDate) ?? 'Purchased';
   return '✓ Purchased';
+}
+
+function fmtPurchaseDateCell(track) {
+  if (!track?.purchased) return '';
+  return fmtDate(track.purchaseDate) ?? 'Date unknown';
+}
+
+function isProductStyleDemoTrack(track) {
+  if (!track?.albumUrl) return false;
+  return /demo|sample pack|download link|bonus \.txt|patreon/i.test(`${track.title ?? ''} ${track.albumTitle ?? ''} ${track.description ?? ''}`);
+}
+
+function getBandcampOpenUrl(track) {
+  if (!track) return '#';
+  if (isProductStyleDemoTrack(track) && track.albumUrl) return track.albumUrl;
+  return track.url ?? track.albumUrl ?? '#';
+}
+
+function normalizeTrackUrl(url) {
+  return url ? String(url).split('?')[0].replace(/\/$/, '') : null;
+}
+
+function applyInheritedPurchaseState(track) {
+  if (!track) return track;
+  const normUrl = normalizeTrackUrl(track.url);
+  const normAlbumUrl = normalizeTrackUrl(track.albumUrl);
+  const inheritedFrom = Object.values(state.tracks).find(existing => {
+    if (!existing?.purchased) return false;
+    const existingUrl = normalizeTrackUrl(existing.url);
+    const existingAlbumUrl = normalizeTrackUrl(existing.albumUrl);
+    return (
+      (normUrl && existingUrl === normUrl) ||
+      (normAlbumUrl && existingUrl === normAlbumUrl) ||
+      (normAlbumUrl && existingAlbumUrl === normAlbumUrl) ||
+      (track.bcTrackId != null && existing.bcTrackId === track.bcTrackId) ||
+      (track.bcAlbumId != null && existing.bcAlbumId === track.bcAlbumId)
+    );
+  });
+  if (inheritedFrom) {
+    track.purchased = true;
+    track.purchaseDate = track.purchaseDate ?? inheritedFrom.purchaseDate ?? null;
+  }
+  return track;
+}
+
+function reconcilePurchaseState() {
+  let changed = false;
+  for (const track of Object.values(state.tracks)) {
+    if (!track || track.purchased) continue;
+    applyInheritedPurchaseState(track);
+    if (track.purchased) changed = true;
+  }
+  return changed;
+}
+
+function setPurchasedViewMode(enabled) {
+  document.getElementById('content')?.classList.toggle('purchased-view', !!enabled);
 }
 
 function sortArrow(sortBy) {
@@ -202,8 +266,10 @@ function sortArrow(sortBy) {
     'artist-desc': '↓',
     album: '↑',
     'album-desc': '↓',
-    purchase: '↓',
-    'purchase-asc': '↑',
+    purchased: '↓',
+    'purchased-asc': '↑',
+    'purchase-date': '↓',
+    'purchase-date-asc': '↑',
     'price-asc': '↑',
     'price-desc': '↓',
     duration: '↑',
@@ -362,6 +428,17 @@ function getGlobalLibraryTrackIds() {
   return ids;
 }
 
+function getReleaseStateCounts() {
+  return {
+    all: state.trackedReleases.length,
+    new: state.trackedReleases.filter(release => release.state === 'new').length,
+    added: state.trackedReleases.filter(release => release.state === 'added').length,
+    archived: state.trackedReleases.filter(release => release.state === 'archived').length
+  };
+}
+
+let activeReleaseFilter = 'new';
+
 function isTrackReferenced(trackId) {
   if (state.libraryTrackIds.includes(trackId)) return true;
   return state.playlists.some(p => p.trackIds?.includes(trackId));
@@ -373,11 +450,13 @@ function renderLibraryCounts() {
   const purchasedCount = Object.values(state.tracks).filter(t => t.purchased).length;
   const cartCount      = state.cartItems.length;
   const wishlistCount  = state.wishlistItems.length;
+  const releaseCounts  = getReleaseStateCounts();
 
   setLibCount('lib-library-count',   libraryCount);
   setLibCount('lib-purchased-count', purchasedCount);
   setLibCount('lib-cart-count',      cartCount);
   setLibCount('lib-wishlist-count',  wishlistCount);
+  setLibCount('lib-releases-count',  releaseCounts.new);
 
   // Highlight active lib view
   document.querySelectorAll('.library-item').forEach(el => {
@@ -775,11 +854,141 @@ function selectLibView(view) {
   ui.selectedTrackId = null;
   ui.selectedTrackIds.clear();
   ui.selectedCartIds.clear();
+  ui.selectedReleaseIds.clear();
   syncSortSelect();
   renderSidebar();
   if (view === 'library') renderContent();
   else renderLibContent(view);
   renderDetailPanel();
+}
+
+function markTrackedReleaseAdded(releaseId, addedTrackIds = []) {
+  const release = state.trackedReleases.find(item => item.id === releaseId);
+  if (!release) return;
+  release.state = 'added';
+  const merged = new Set([...(release.addedTrackIds ?? []), ...addedTrackIds]);
+  release.addedTrackIds = [...merged];
+}
+
+function addTracksToLibrary(tracks, releaseId = null) {
+  let added = 0;
+  const addedIds = [];
+  for (const t of tracks) {
+    applyInheritedPurchaseState(t);
+    if (!state.tracks[t.id]) state.tracks[t.id] = t;
+    if (!state.libraryTrackIds.includes(t.id)) {
+      state.libraryTrackIds.push(t.id);
+      added++;
+    }
+    addedIds.push(t.id);
+  }
+  if (releaseId) markTrackedReleaseAdded(releaseId, addedIds);
+  schedSave();
+  renderSidebar();
+  renderActiveView();
+  toast(`Added ${added} track${added !== 1 ? 's' : ''} to Library`);
+}
+
+function filteredTrackedReleases() {
+  let items = [...state.trackedReleases];
+  if (activeReleaseFilter !== 'all') items = items.filter(release => release.state === activeReleaseFilter);
+  items.sort((a, b) => new Date(b.releaseDate ?? b.discoveredAt ?? 0) - new Date(a.releaseDate ?? a.discoveredAt ?? 0));
+  return items;
+}
+
+function buildReleaseRow(release) {
+  const li = document.createElement('li');
+  li.className = `release-item release-${release.state}`;
+  li.dataset.releaseId = release.id;
+  const checked = ui.selectedReleaseIds.has(release.id);
+  const artHtml = release.artwork
+    ? `<img class="release-art" src="${esc(release.artwork)}" alt="" loading="lazy">`
+    : `<div class="release-art-placeholder">♪</div>`;
+  const badgeState = release.state === 'new' ? 'New' : (release.state === 'added' ? 'Added' : 'Archived');
+  li.innerHTML = `
+    <div class="release-check-wrap"><input type="checkbox" class="track-cb release-cb" ${checked ? 'checked' : ''}></div>
+    ${artHtml}
+    <div class="release-body">
+      <div class="release-title-row">
+        <span class="release-title">${esc(release.title)}</span>
+        <span class="release-badge state-${esc(release.state)}">${esc(badgeState)}</span>
+        <span class="release-badge">${esc(release.type ?? 'release')}</span>
+      </div>
+      <div class="release-meta">
+        <span>${esc(release.artistName ?? 'Unknown Artist')}</span>
+        ${release.releaseDate ? `<span>${esc(fmtDate(release.releaseDate))}</span>` : '<span>Date unknown</span>'}
+      </div>
+      <div class="release-url">${esc(release.url)}</div>
+    </div>
+    <div class="release-actions">
+      <button class="btn-sm release-open-btn">Open</button>
+      <button class="btn-sm release-add-library-btn" ${release.state === 'added' ? 'disabled' : ''}>Add to Library</button>
+      <button class="btn-sm release-add-playlist-btn">Add to Playlist</button>
+      <button class="btn-sm release-archive-btn">${release.state === 'archived' ? 'Unarchive' : 'Archive'}</button>
+    </div>`;
+
+  const cb = li.querySelector('.release-cb');
+  cb.addEventListener('change', () => {
+    if (cb.checked) ui.selectedReleaseIds.add(release.id);
+    else ui.selectedReleaseIds.delete(release.id);
+    updateReleaseBulkAction();
+  });
+  li.querySelector('.release-open-btn').addEventListener('click', () => window.open(release.url, '_blank'));
+  li.querySelector('.release-add-library-btn').addEventListener('click', () => handleReleaseAdd(release, 'library'));
+  li.querySelector('.release-add-playlist-btn').addEventListener('click', () => handleReleaseAdd(release, 'playlist'));
+  li.querySelector('.release-archive-btn').addEventListener('click', () => toggleArchiveRelease(release.id, release.state === 'archived'));
+  return li;
+}
+
+function updateReleaseBulkAction() {
+  const btn = document.getElementById('archive-selected-releases-btn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !ui.activeLibView || ui.activeLibView !== 'releases' || ui.selectedReleaseIds.size === 0 || activeReleaseFilter === 'archived');
+  if (ui.selectedReleaseIds.size > 0) btn.textContent = `Archive Selected (${ui.selectedReleaseIds.size})`;
+}
+
+function renderReleaseContent() {
+  const titleEl   = document.getElementById('playlist-title');
+  const actionsEl = document.getElementById('playlist-actions');
+  const emptyEl   = document.getElementById('track-list-empty');
+  const listEl    = document.getElementById('track-list');
+  const colHdr    = document.getElementById('track-col-header');
+  const pullActions = document.getElementById('lib-pull-actions');
+
+  setPurchasedViewMode(false);
+  document.getElementById('add-track-bar').classList.add('hidden');
+  actionsEl.classList.add('hidden');
+  pullActions.classList.remove('hidden');
+  document.getElementById('pull-purchased-btn').classList.add('hidden');
+  document.getElementById('pull-cart-header-btn').classList.add('hidden');
+  document.getElementById('refresh-cart-btn').classList.add('hidden');
+  document.getElementById('remove-selected-cart-btn').classList.add('hidden');
+  document.getElementById('clear-cart-btn').classList.add('hidden');
+  document.getElementById('pull-wishlist-header-btn').classList.add('hidden');
+  document.getElementById('wishlist-collapse-all-btn').classList.add('hidden');
+  document.getElementById('wishlist-expand-all-btn').classList.add('hidden');
+  document.getElementById('pull-releases-btn').classList.remove('hidden');
+  document.getElementById('release-filter-select').classList.remove('hidden');
+  document.getElementById('release-filter-select').value = activeReleaseFilter;
+  titleEl.textContent = 'New Releases';
+
+  const items = filteredTrackedReleases();
+  listEl.className = '';
+  listEl.innerHTML = '';
+  colHdr.classList.add('hidden');
+  document.getElementById('playlist-stats').classList.add('hidden');
+  updateReleaseBulkAction();
+
+  if (!items.length) {
+    emptyEl.classList.remove('hidden');
+    emptyEl.innerHTML = state.trackedReleases.length
+      ? `<p>No releases in this filter.</p><p class="hint">Try switching the release filter or pull releases again.</p>`
+      : `<p>No tracked releases yet.</p><p class="hint">Pull releases to build an inbox from artists already in your Library.</p>`;
+    return;
+  }
+  emptyEl.classList.add('hidden');
+  listEl.className = 'release-list';
+  items.forEach(release => listEl.appendChild(buildReleaseRow(release)));
 }
 
 function renderLibContent(view) {
@@ -791,6 +1000,7 @@ function renderLibContent(view) {
 
   document.getElementById('add-track-bar').classList.add('hidden');
   actionsEl.classList.add('hidden');
+  setPurchasedViewMode(view === 'purchased');
 
   const pullActions = document.getElementById('lib-pull-actions');
   document.getElementById('pull-purchased-btn').classList.add('hidden');
@@ -801,7 +1011,15 @@ function renderLibContent(view) {
   document.getElementById('pull-wishlist-header-btn').classList.add('hidden');
   document.getElementById('wishlist-collapse-all-btn').classList.add('hidden');
   document.getElementById('wishlist-expand-all-btn').classList.add('hidden');
+  document.getElementById('pull-releases-btn').classList.add('hidden');
+  document.getElementById('release-filter-select').classList.add('hidden');
+  document.getElementById('archive-selected-releases-btn').classList.add('hidden');
   pullActions.classList.remove('hidden');
+
+  if (view === 'releases') {
+    renderReleaseContent();
+    return;
+  }
 
   let items = [];
   if (view === 'purchased') {
@@ -828,10 +1046,9 @@ function renderLibContent(view) {
     document.getElementById('wishlist-expand-all-btn').classList.toggle('hidden', !hasWishlistAlbums);
   }
 
-  const purchasedHdr = document.getElementById('tcol-purchased');
-  purchasedHdr.dataset.baseLabel = view === 'purchased' ? 'Purchase Date' : 'Purchased';
   updateSortHeaderUI();
 
+  listEl.className = '';
   listEl.innerHTML = '';
   if (!items.length) {
     emptyEl.classList.remove('hidden');
@@ -873,6 +1090,7 @@ function renderActiveView() {
   if (ui.activeLibView && ui.activeLibView !== 'library') {
     renderLibContent(ui.activeLibView);
   } else {
+    setPurchasedViewMode(false);
     renderContent();
   }
 }
@@ -896,6 +1114,7 @@ function handleGlobalSearch(query) {
     renderActiveView();
     return;
   }
+  setPurchasedViewMode(false);
 
   const titleEl   = document.getElementById('playlist-title');
   const actionsEl = document.getElementById('playlist-actions');
@@ -915,7 +1134,6 @@ function handleGlobalSearch(query) {
   actionsEl.classList.add('hidden');
   libEl.classList.add('hidden');
   addBar.classList.add('hidden');
-  document.getElementById('tcol-purchased').dataset.baseLabel = globalSearchScope === 'purchased' ? 'Purchase Date' : 'Purchased';
   updateSortHeaderUI();
   colHdr.classList.remove('hidden');
   listEl.innerHTML = '';
@@ -1017,6 +1235,13 @@ function sortTrackIds(ids) {
   if (ui.sortBy === 'default') return ids;
   const tracks = ids.map(id => state.tracks[id]).filter(Boolean);
   const getGenre = t => (t.genre ?? t.tags?.[0] ?? '').toLowerCase();
+  const purchaseStatusCmp = (a, b) => {
+    const delta = Number(b.purchased) - Number(a.purchased);
+    if (delta !== 0) return delta;
+    const dateDelta = new Date(b.purchaseDate ?? 0) - new Date(a.purchaseDate ?? 0);
+    if (dateDelta !== 0) return dateDelta;
+    return (a.title ?? '').localeCompare(b.title ?? '');
+  };
   const cmp = {
     'title-asc': (a, b) => (a.title ?? '').localeCompare(b.title ?? ''),
     'title-desc': (a, b) => (b.title ?? '').localeCompare(a.title ?? ''),
@@ -1024,8 +1249,10 @@ function sortTrackIds(ids) {
     'artist-desc': (a, b) => (b.artist ?? '').localeCompare(a.artist ?? ''),
     album:       (a, b) => (a.albumTitle ?? '').localeCompare(b.albumTitle ?? ''),
     'album-desc': (a, b) => (b.albumTitle ?? '').localeCompare(a.albumTitle ?? ''),
-    purchase:    (a, b) => new Date(b.purchaseDate ?? 0) - new Date(a.purchaseDate ?? 0),
-    'purchase-asc': (a, b) => new Date(a.purchaseDate ?? 0) - new Date(b.purchaseDate ?? 0),
+    purchased:   purchaseStatusCmp,
+    'purchased-asc': (a, b) => purchaseStatusCmp(b, a),
+    'purchase-date': (a, b) => new Date(b.purchaseDate ?? 0) - new Date(a.purchaseDate ?? 0),
+    'purchase-date-asc': (a, b) => new Date(a.purchaseDate ?? 0) - new Date(b.purchaseDate ?? 0),
     'price-asc': (a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0),
     'price-desc':(a, b) => (parseFloat(b.price) || 0) - (parseFloat(a.price) || 0),
     duration:    (a, b) => (a.duration || 0) - (b.duration || 0),
@@ -1052,7 +1279,6 @@ function renderContent() {
     document.getElementById('add-track-bar').classList.add('hidden');
     document.getElementById('lib-pull-actions').classList.add('hidden');
     document.getElementById('smart-criteria-bar').classList.add('hidden');
-    document.getElementById('tcol-purchased').dataset.baseLabel = 'Purchased';
     titleEl.textContent = 'Global Library';
     actionsEl.classList.remove('hidden');
     updateSortHeaderUI();
@@ -1064,6 +1290,7 @@ function renderContent() {
     }
     emptyEl.classList.toggle('hidden', hasItems);
     colHdr.classList.toggle('hidden', !hasItems);
+    listEl.className = '';
     listEl.innerHTML = '';
 
     const rowPlaylistId = '__global__';
@@ -1085,7 +1312,6 @@ function renderContent() {
   const emptyEl   = document.getElementById('track-list-empty');
   const listEl    = document.getElementById('track-list');
   const colHdr    = document.getElementById('track-col-header');
-  document.getElementById('tcol-purchased').dataset.baseLabel = 'Purchased';
   updateSortHeaderUI();
 
   if (!pl) {
@@ -1107,7 +1333,6 @@ function renderContent() {
   const isSmart = pl.type === 'smart';
   document.getElementById('add-track-bar').classList.toggle('hidden', isSmart);
   document.getElementById('lib-pull-actions').classList.add('hidden');
-  document.getElementById('tcol-purchased').dataset.baseLabel = 'Purchased';
   titleEl.textContent = pl.name;
   actionsEl.classList.remove('hidden');
   updateSortHeaderUI();
@@ -1137,6 +1362,7 @@ function renderContent() {
   }
   emptyEl.classList.toggle('hidden', hasItems);
   colHdr.classList.toggle('hidden', !hasItems);
+  listEl.className = '';
   listEl.innerHTML = '';
 
   const groups = groupTracksByAlbum(ids);
@@ -1223,13 +1449,15 @@ function buildLibTrackRow(item, num, view) {
     <div class="col-artist">${esc(item.artist ?? '')}</div>
     <div class="col-album">${esc(item.albumTitle ?? '')}</div>
     <div class="col-purchased"></div>
+    <div class="col-purchase-date"></div>
     <div class="col-genre"></div>
     <div class="col-price">${item.price ? fmtPrice(item) : ''}</div>
     <div></div>
     <button class="track-menu-btn" title="Open on Bandcamp">⋯</button>`;
   li.querySelector('.track-menu-btn').addEventListener('click', e => {
     e.stopPropagation();
-    if (item.url) window.open(item.url, '_blank');
+    const targetUrl = getBandcampOpenUrl(item);
+    if (targetUrl && targetUrl !== '#') window.open(targetUrl, '_blank');
   });
   if (view === 'cart') {
     const cb = li.querySelector('.track-cb');
@@ -1503,7 +1731,6 @@ function buildTrackRow(trackId, playlistId) {
   const isPlaying = player.trackId === trackId;
   const isChecked = ui.selectedTrackIds.has(trackId);
   const canRemoveFromPlaylist = !!playlistId && playlistId !== '__global__';
-  const purchasedMode = (ui.activeLibView === 'purchased' || (globalSearchQuery && globalSearchScope === 'purchased')) ? 'date' : 'status';
 
   const isUnstreamable = t.streamable === false;
 
@@ -1548,7 +1775,8 @@ function buildTrackRow(trackId, playlistId) {
     <div class="col-time">${fmtDuration(t.duration)}</div>
     <div class="col-artist">${esc(t.artist)}</div>
     <div class="col-album">${esc(t.albumTitle ?? '')}</div>
-    <div class="col-purchased">${esc(fmtPurchasedCell(t, purchasedMode))}</div>
+    <div class="col-purchased">${esc(fmtPurchasedCell(t))}</div>
+    <div class="col-purchase-date">${esc(fmtPurchaseDateCell(t))}</div>
     <div class="col-genre">${genreHtml}</div>
     <div class="col-price">${esc(fmtPrice(t))}</div>
     <button class="track-cart-btn" title="Add to Bandcamp cart">
@@ -1875,7 +2103,7 @@ function renderDetailPanel() {
 
   // Source action buttons
   document.getElementById('detail-cart-btn')?.addEventListener('click', () => pushToCart(ui.selectedTrackId));
-  document.getElementById('detail-bc-btn')?.addEventListener('click', () => window.open(t.url ?? t.albumUrl, '_blank'));
+  document.getElementById('detail-bc-btn')?.addEventListener('click', () => window.open(getBandcampOpenUrl(t), '_blank'));
 
   // Playlist search
   document.getElementById('detail-pl-search')?.addEventListener('input', e => {
@@ -2030,7 +2258,7 @@ async function playTrack(trackId, playlistId) {
   const artEl = document.getElementById('player-art');
   if (t.artwork) { artEl.src = t.artwork; artEl.style.display = ''; }
   else artEl.style.display = 'none';
-  document.getElementById('player-bc-link').href = t.url ?? t.albumUrl ?? '#';
+  document.getElementById('player-bc-link').href = getBandcampOpenUrl(t);
 
   setLoading(true);
   audioEl.pause();
@@ -2324,7 +2552,7 @@ function handleContextAction(action) {
   switch (action) {
     case 'play':          playTrack(trackId, playlistId); selectTrack(trackId); break;
     case 'play-next':     queueNext(trackId); break;
-    case 'open-bc':       window.open(t.url ?? t.albumUrl, '_blank'); break;
+    case 'open-bc':       window.open(getBandcampOpenUrl(t), '_blank'); break;
     case 'refresh-track': refreshTrack(trackId); break;
     case 'push-cart':     pushToCart(trackId); break;
     case 'toggle-purchased':
@@ -2350,14 +2578,18 @@ function queueNext(trackId) {
 }
 
 // ── Track management ──────────────────────────────────────────────────────
-function addTracksToPlaylist(tracks, playlistId) {
+function addTracksToPlaylist(tracks, playlistId, releaseId = null) {
   const pl = getPlaylist(playlistId);
   if (!pl || pl.type === 'smart') return;
   let added = 0;
+  const addedIds = [];
   for (const t of tracks) {
+    applyInheritedPurchaseState(t);
     if (!state.tracks[t.id]) state.tracks[t.id] = t;
     if (!pl.trackIds.includes(t.id)) { pl.trackIds.push(t.id); added++; }
+    addedIds.push(t.id);
   }
+  if (releaseId) markTrackedReleaseAdded(releaseId, addedIds);
   schedSave(); renderSidebar();
   if (ui.activePlaylistId === playlistId) renderContent();
   toast(`Added ${added} track${added !== 1 ? 's' : ''} to "${pl.name}"`);
@@ -2455,7 +2687,7 @@ async function handleAddTrack() {
       addTracksToPlaylist(result.items, ui.activePlaylistId);
     } else {
       input.value = '';
-      showPicker(result);
+      showPicker(result, { mode: 'playlist', defaultTargetId: ui.activePlaylistId, releaseId: null });
     }
   } catch (e) {
     toast('Lookup failed: ' + e.message, 'error');
@@ -2465,8 +2697,10 @@ async function handleAddTrack() {
 }
 
 // ── Track picker ──────────────────────────────────────────────────────────
-function showPicker(result) {
+function showPicker(result, options = {}) {
   ui.pendingPickerItems = result.items;
+  ui.pendingPickerMode = options.mode ?? 'playlist';
+  ui.pendingPickerReleaseId = options.releaseId ?? null;
   document.getElementById('picker-title').textContent =
     result.type === 'album' ? `Album: ${result.albumName}` : 'Add Tracks';
 
@@ -2477,7 +2711,7 @@ function showPicker(result) {
     albumRow.classList.remove('hidden');
   } else { albumRow.classList.add('hidden'); }
 
-  populatePlaylistSelect('picker-playlist-select', ui.activePlaylistId);
+  populatePlaylistSelect('picker-playlist-select', options.defaultTargetId ?? ui.activePlaylistId, ui.pendingPickerMode === 'library-or-playlist');
 
   const ul = document.getElementById('picker-track-list');
   ul.innerHTML = '';
@@ -2511,11 +2745,83 @@ function confirmPicker() {
     .map(cb => ui.pendingPickerItems[parseInt(cb.dataset.idx)]);
   if (!selected.length) { toast('No tracks selected'); return; }
   const targetId = document.getElementById('picker-playlist-select').value;
-  addTracksToPlaylist(selected, targetId);
+  if (targetId === '__library__') addTracksToLibrary(selected, ui.pendingPickerReleaseId);
+  else addTracksToPlaylist(selected, targetId, ui.pendingPickerReleaseId);
   closePicker();
 }
 
-function closePicker() { document.getElementById('picker-modal').classList.add('hidden'); }
+function closePicker() {
+  ui.pendingPickerMode = 'playlist';
+  ui.pendingPickerReleaseId = null;
+  document.getElementById('picker-modal').classList.add('hidden');
+}
+
+async function handleReleaseAdd(release, targetKind) {
+  try {
+    if (targetKind === 'playlist' && !state.playlists.some(pl => pl.type !== 'smart')) {
+      toast('Create a playlist first', 'warn');
+      return;
+    }
+    const result = await api.post('/api/track/lookup', { url: release.url });
+    if (targetKind === 'library') {
+      if (result.type === 'track' && result.items.length === 1) {
+        addTracksToLibrary(result.items, release.id);
+      } else {
+        showPicker(result, { mode: 'library-or-playlist', defaultTargetId: '__library__', releaseId: release.id });
+      }
+      return;
+    }
+    showPicker(result, { mode: 'playlist', defaultTargetId: ui.activePlaylistId ?? state.playlists.find(p => p.type !== 'smart')?.id ?? '', releaseId: release.id });
+  } catch (err) {
+    toast('Release lookup failed: ' + err.message, 'error');
+  }
+}
+
+async function toggleArchiveRelease(releaseId, archived) {
+  try {
+    const release = archived
+      ? await api.post(`/api/releases/${releaseId}/unarchive`, {})
+      : await api.post(`/api/releases/${releaseId}/archive`, {});
+    const idx = state.trackedReleases.findIndex(item => item.id === releaseId);
+    if (idx >= 0 && release.release) state.trackedReleases[idx] = release.release;
+    ui.selectedReleaseIds.delete(releaseId);
+    schedSave();
+    renderSidebar();
+    renderActiveView();
+  } catch (err) {
+    toast((archived ? 'Unarchive' : 'Archive') + ' failed: ' + err.message, 'error');
+  }
+}
+
+async function archiveSelectedReleases() {
+  const ids = [...ui.selectedReleaseIds];
+  if (!ids.length) return;
+  for (const id of ids) {
+    try { await api.post(`/api/releases/${id}/archive`, {}); } catch {}
+    const release = state.trackedReleases.find(item => item.id === id);
+    if (release) release.state = 'archived';
+  }
+  ui.selectedReleaseIds.clear();
+  schedSave();
+  renderSidebar();
+  renderActiveView();
+}
+
+async function pullTrackedReleasesClient() {
+  const btn = document.getElementById('pull-releases-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const res = await api.get('/api/releases/pull');
+    state.trackedReleases = (res.items ?? []).filter(Boolean);
+    renderSidebar();
+    renderActiveView();
+    toast(`Tracked ${res.trackedArtists} artist${res.trackedArtists !== 1 ? 's' : ''}; ${res.added} release${res.added !== 1 ? 's' : ''} added`);
+  } catch (err) {
+    toast('Release pull failed: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Pull Releases'; }
+  }
+}
 
 // ── Playlist management ───────────────────────────────────────────────────
 function createPlaylist(name = 'New Playlist') {
@@ -2552,9 +2858,16 @@ function deleteActivePlaylist() {
   schedSave(); renderSidebar(); renderContent();
 }
 
-function populatePlaylistSelect(selectId, selectedId) {
+function populatePlaylistSelect(selectId, selectedId, includeLibrary = false) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = '';
+  if (includeLibrary) {
+    const libraryOpt = document.createElement('option');
+    libraryOpt.value = '__library__';
+    libraryOpt.textContent = 'Library';
+    if (selectedId === '__library__') libraryOpt.selected = true;
+    sel.appendChild(libraryOpt);
+  }
   for (const pl of state.playlists.filter(p => p.type !== 'smart')) {
     const opt = document.createElement('option');
     opt.value = pl.id; opt.textContent = pl.name;
@@ -3458,6 +3771,13 @@ function bindEvents() {
     ui.playlistSearchQuery = e.target.value;
     renderSidebar();
   });
+  document.getElementById('pull-releases-btn').addEventListener('click', pullTrackedReleasesClient);
+  document.getElementById('release-filter-select').addEventListener('change', e => {
+    activeReleaseFilter = e.target.value;
+    ui.selectedReleaseIds.clear();
+    renderActiveView();
+  });
+  document.getElementById('archive-selected-releases-btn').addEventListener('click', archiveSelectedReleases);
 
   // Add track bar
   document.getElementById('add-track-btn').addEventListener('click', handleAddTrack);
